@@ -1,0 +1,218 @@
+module timer_module
+  public
+contains
+  subroutine timerset(val, key)
+    ! Insert your timer calls here
+    implicit none
+    logical, intent(in) :: val
+    character*(*), intent(in) :: key
+    return
+  end subroutine timerset
+end module timer_module
+
+module mesh_state_types
+  use define_kind
+  public
+  type mesh_state_core_t
+     real(REAL64), dimension(:), pointer :: rho
+  end type mesh_state_core_t
+  type mesh_state_frac_var_t
+  end type mesh_state_frac_var_t
+  type mesh_state_frac_core_t
+     type(mesh_state_frac_var_t) :: mass
+     type(mesh_state_frac_var_t) :: vol       !  Needed
+     type(mesh_state_frac_var_t) :: eng
+
+     ! procedure(frac_core_io_int), pointer, nopass :: io => null()
+     ! procedure(frac_core_movedn_int), pointer, nopass :: movedn => null()
+     ! procedure(frac_core_clip_tiny_volumes_int), pointer, nopass :: clip_tiny_volumes => null()
+     ! procedure(frac_core_deallocate_int), pointer, nopass :: deallocate => null()
+     ! procedure(frac_core_is_allocated_int), pointer, nopass :: is_allocated => null()
+  end type mesh_state_frac_core_t
+
+end module mesh_state_types
+
+module matdefcm
+  public
+  integer :: nummat = 1
+end module matdefcm
+
+module fixed_values_module
+  use define_kind, only : REAL64
+  implicit none
+  public
+  real(REAL64), parameter :: minimum_fraction = 1.00021e-12_REAL64
+
+end module fixed_values_module
+
+module interface_types
+  public
+  type interface_option_t
+     integer :: interface_option = 1
+     integer :: vof_multimat_treatment = 1
+     logical :: flatten_interface_vel = .false.
+     logical, pointer :: is_vof_mat(:)
+  end type interface_option_t
+end module interface_types
+
+module sim_types
+  public
+  type, abstract ::  sim_info_t
+     integer :: numdim=3
+  end type sim_info_t
+end module sim_types
+
+module var_wrapper_class
+  use define_kind
+  public
+  type :: var_wrapper
+  end type var_wrapper
+contains
+  subroutine vw_set(vw, deriv, ncell, ndim, nvec)
+    type(var_wrapper), intent(inout) :: vw
+    real(REAL64), dimension(:,:,:), intent(in) :: deriv
+    integer, intent(in) :: ncell
+    integer, intent(in) :: ndim
+    integer, intent(in) :: nvec
+  end subroutine vw_set
+end module var_wrapper_class
+
+module gradient_types
+  public
+  type gradient_prop_t
+     integer :: shock_detector
+  end type gradient_prop_t
+end module gradient_types
+
+
+module mesh_state_cell_accessors
+  public
+contains
+  pure subroutine CV_zero_for_cells_ary(weight,mixed_count,mixed_list)
+    use define_kind
+    implicit none
+    real(REAL64), intent(in) :: weight(:)
+    integer, intent(in) :: mixed_count
+    integer, intent(inout) :: mixed_list(:)
+  end subroutine CV_zero_for_cells_ary
+  pure function CV_get_for_cells_ary(var,cell_count,cell_list)
+    use define_kind
+    implicit none
+    real(REAL64), dimension(:), pointer, intent(in) :: var
+    integer,intent(in) :: cell_count, cell_list(:)
+    real(REAL64), dimension(:) :: CV_get_for_cells_ary(cell_count)
+    CV_get_for_cells_ary =  var(cell_list)
+  end function CV_get_for_cells_ary
+end module mesh_state_cell_accessors
+
+
+
+module mesh_scratch_gravity
+  use define_kind
+  public
+  ! ------------------------------------------------------------------------------
+  type mesh_scratch_gravity_t
+     real(REAL64), dimension(:,:), allocatable :: grav_accel
+  end type mesh_scratch_gravity_t
+  ! ------------------------------------------------------------------------------
+end module mesh_scratch_gravity
+module mesh_scratch_gravity_module
+  use define_kind
+  use mesh_scratch_gravity
+  public
+  type(mesh_scratch_gravity_t) ::  grav_scr
+end module mesh_scratch_gravity_module
+
+module mesh_types
+  use, intrinsic :: iso_fortran_env, only : INT64, REAL64
+  use iso_c_binding
+  use sim_types, only: sim_info_t
+  use define_kind
+  use mesh_state_types
+  public
+  type levels_t
+     integer, pointer :: numtop
+     integer, pointer :: allnumtop
+     integer, dimension(:), pointer :: alltop
+     integer, dimension(:), pointer :: ltop_nv
+  end type levels_t
+  type faces_t
+     integer, dimension(:), pointer :: face_num
+     integer, dimension(:,:), pointer :: face_hi
+     integer, dimension(:,:), pointer :: face_lo
+     integer, dimension(:,:), pointer :: face_flag
+     integer, dimension(:,:), pointer :: face_id
+     integer, dimension(:,:,:), pointer :: face_local
+  end type faces_t
+  type neighbors_t
+  end type neighbors_t
+  type amr_vars_t
+  end type amr_vars_t
+  type user_refine_vars_t
+  end type user_refine_vars_t
+  type cells_t
+     integer, pointer :: numcell                           ! needed
+     integer(INT64), pointer ::   sum_numcell 
+     integer, pointer :: max_numcell
+     integer, pointer :: numcell_clone                     ! needed
+     integer, pointer :: mxcell   
+
+     integer(INT64), dimension(:), pointer :: cell_address
+
+     logical(c_bool), dimension(:), pointer :: cell_active
+
+     ! set in kidmom_module in check_cell_center
+     real(REAL64), dimension(:,:), pointer :: cell_center
+
+     ! Geometric centroid of cell, same for rectangular geometry, differs
+     ! for cylindrical and spherical geometry.
+     real(REAL64), dimension(:,:), pointer :: cell_position
+
+     real(REAL64), dimension(:,:), pointer :: cell_half
+
+     ! Radial distance from the cell lower/high edge to the centroid.
+     real(REAL64), dimension(:,:), pointer :: cell_half_lo, &    ! needed 
+          cell_half_hi    ! needed 
+
+
+     ! cell volume
+     real(REAL64), dimension(:), pointer :: vcell                ! needed
+
+     integer, dimension(:), pointer :: global_numcell
+     integer(INT64), dimension(:), pointer :: global_base, global_base_old
+
+  end type cells_t
+  type mesh_t
+     class(cells_t), allocatable :: cells
+     class(faces_t), allocatable :: faces
+     class(levels_t), allocatable :: levels
+     class(neighbors_t), allocatable :: neighbors
+     class(sim_info_t), pointer :: sim
+     class(amr_vars_t), allocatable :: amr_vars
+     type(user_refine_vars_t) :: usref_vars
+  end type mesh_t
+end module mesh_types
+
+module mesh_state_accessors
+  use define_kind
+  implicit none
+  public
+contains
+  pure integer function FV_count_mixed_top_cells_range(vol,mesh,nstart,nend,nummat)
+    use mesh_state_types, only: mesh_state_frac_var_t
+    use mesh_types, only: mesh_t
+    implicit none
+    type(mesh_state_frac_var_t), intent(in) :: vol
+    type(mesh_t), intent(in) :: mesh
+    integer, intent(in) :: nstart, nend, nummat
+  end function FV_count_mixed_top_cells_range
+  pure function FV_get_for_cells_ary_materials(vol,cell_count,cell_list,vmatnum,vmats)
+    use mesh_state_types, only: mesh_state_frac_var_t
+    use mesh_types, only: mesh_t
+    implicit none
+    type(mesh_state_frac_var_t), intent(in) :: vol
+    integer,intent(in) :: cell_count, cell_list(:)
+    integer,intent(in) :: vmatnum, vmats(:)
+    real(REAL64), dimension(:) :: FV_get_for_cells_ary_materials(cell_count, vmatnum)
+  end function FV_get_for_cells_ary_materials
+end module mesh_state_accessors
