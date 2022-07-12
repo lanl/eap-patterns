@@ -13,6 +13,7 @@ end module timer_module
 module mesh_state_types
   use define_kind
   public
+  
   type mesh_state_core_t
      real(REAL64), dimension(:), pointer :: rho
   end type mesh_state_core_t
@@ -57,7 +58,7 @@ end module interface_types
 
 module sim_types
   public
-  type, abstract ::  sim_info_t
+  type ::  sim_info_t
      integer :: numdim=3
   end type sim_info_t
 end module sim_types
@@ -135,6 +136,7 @@ module mesh_types
      integer, pointer :: allnumtop
      integer, dimension(:), pointer :: alltop
      integer, dimension(:), pointer :: ltop_nv
+     integer, dimension(:), pointer :: cell_level
   end type levels_t
   type faces_t
      integer, dimension(:), pointer :: face_num
@@ -191,6 +193,41 @@ module mesh_types
      class(amr_vars_t), allocatable :: amr_vars
      type(user_refine_vars_t) :: usref_vars
   end type mesh_t
+  contains
+    subroutine release_mesh(m)
+      use mem_release, only: release
+      type(mesh_t) :: m
+      if (allocated(m%cells)) then
+         ! Release cells
+         call release(m%cells%numcell)
+         call release(m%cells%sum_numcell)
+         call release(m%cells%max_numcell)
+         call release(m%cells%numcell_clone)
+         call release(m%cells%mxcell)
+         call release(m%cells%cell_address)
+         call release(m%cells%cell_active)
+         call release(m%cells%cell_center)
+         call release(m%cells%cell_position)
+         call release(m%cells%cell_half)
+         call release(m%cells%cell_half_lo)
+         call release(m%cells%cell_half_hi)
+         call release(m%cells%vcell)
+         call release(m%cells%global_numcell)
+         call release(m%cells%global_base)
+         call release(m%cells%global_base_old)
+         deallocate(m%cells)
+      end if
+      if (allocated(m%faces)) then
+         ! Release faces
+         call release(m%faces%face_num)
+         call release(m%faces%face_hi)
+         call release(m%faces%face_lo)
+         call release(m%faces%face_flag)
+         call release(m%faces%face_id)
+         call release(m%faces%face_local)
+         deallocate(m%faces)
+      end if
+    end subroutine release_mesh
 end module mesh_types
 
 module mesh_state_accessors
