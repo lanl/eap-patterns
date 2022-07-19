@@ -30,7 +30,7 @@ contains
   subroutine read_and_clone_r64(array, name, pioid, iStart, nCount, index)
     use iso_c_binding, only: c_int
     use iso_fortran_env, only: REAL64, INT64
-    use clone_lib_module, only: clone_get, clone_barrier
+    use clone_lib_module, only: clone_get
     use pio_interface
     implicit none
     real(REAL64), intent(out) :: array(:)
@@ -41,7 +41,6 @@ contains
     real(REAL64), pointer :: tmp(:)
     integer(c_int) :: i
 
-    call clone_barrier()
     if ( present(index) ) then
        i = index
     else
@@ -223,7 +222,6 @@ contains
     real(c_double) :: quantum, next
 
 
-    write(*,*) '____________________MPI:',nprocs, myid
     allocate(values(0:nprocs))
     oldprocs = pio_length(ID, "global_numcell")
     if (oldprocs == nprocs ) then
@@ -364,7 +362,6 @@ contains
          end do LOOP_CELL
       end do LOOP_DIM
 
-      write(*,*) 'Done with faces:', m%cells%numcell_clone, m%cells%numcell
     END ASSOCIATE
   contains
     integer function get_face_type(the_cell, the_id, the_side)
@@ -439,12 +436,12 @@ contains
 
       
       !*-- Initialize the PIO class
-      write(*,*) 'reading PIO: ', piofile
+      if (myid == 0) write(*,*) 'reading PIO: ', piofile
 
       !*-- TODO(sriram): Change pio_init() to do a "bare" initialization
       !*--               where it does not read in the cell and daughter
       !*--               arrays for whole simulation
-      call pio_init(pioid, piofile, 1)
+      call pio_init_par(pioid, piofile, nprocs, myid, 0, 1)
       
       !*-- Read in the total number of cells and dimensions
       nCell = pio_ncell(pioid)
@@ -507,8 +504,8 @@ contains
       
       !*-- Update cell centers
       allocate(m%cells%cell_center(m%cells%numcell_clone, ndim))
+      if (myid == 0) write(*,*) 'getting centers'
       do iDim = 1, ndim
-         write(*,*) 'getting center for dim ', iDim
          call read_and_clone(m%cells%cell_center(:,iDim), "cell_center", self%id, iStart, nCount, iDim)
       end do
       
@@ -528,13 +525,8 @@ contains
       allocate(m%levels%cell_level(m%cells%numcell_clone))
       call read_and_clone(m%levels%cell_level, "cell_level", self%id, iStart, nCount)
 
-      write(*,*) 'cells=',m%cells%numcell,m%cells%numcell_clone,&
-           m%levels%numtop, m%levels%allnumtop
-
       call self%init_PIO_faces(iStart, nCount, nbrs)
-      write(*,*) 'deallocating neighbors'
       deallocate(nbrs)
-      write(*,*) 'done.'
     END ASSOCIATE
   end subroutine init_from_PIO
 

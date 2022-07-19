@@ -133,6 +133,9 @@ contains
     integer, intent(in) :: n, the_type
     self%n = n
 
+    nullify(self%i)
+    nullify(self%i64)
+    nullify(self%r64)
     if (the_type == DATA_I) then
        allocate(self%i(n))
     else if (the_type == DATA_I64) then
@@ -371,7 +374,8 @@ contains
     integer(INT64) :: id_lo, id_hi, iCell, iStart, iEnd
     
     integer(INT64), allocatable :: clone_map(:)
-    integer, allocatable :: proc_map(:), tmp_recv(:), tmp_id_recv(:)
+    integer, allocatable :: proc_map(:), tmp_recv(:)
+    type(data_t), allocatable :: tmp_id_recv(:)
     
     ASSOCIATE(                                   &
          numtop => m%levels%numtop,              &
@@ -393,53 +397,57 @@ contains
       ! Count clones by proc
       allocate(tmp_recv(0:nprocs))
       n_nodes = 0
-      tmp_recv = 0
-      do iDim=1, m%sim%numdim
-         do iTmp = numcell + 1, numcell_clone
-            iCell = clone_map(iTmp - numcell)
-            iProc = get_proc_id(iCell, nprocs, partition)
-            if ( iProc /= myid) then
-               if (tmp_recv(iProc) == 0) then
-                  ! only check tmp_recv because recv and send procs
-                  ! are same due to geometric constraint
-                  n_nodes = n_nodes + 1
-               end if
-               tmp_recv(iProc) = tmp_recv(iProc) + 1
+      tmp_recv = -1
+      do iTmp = numcell + 1, numcell_clone
+         iCell = clone_map(iTmp - numcell)
+         iProc = get_proc_id(iCell, nprocs, partition)
+         if ( iProc /= myid) then
+            if (tmp_recv(iProc) < 0) then
+               ! only check tmp_recv because recv and send procs
+               ! are same due to not dealing with T cells at boundaries
+               n_nodes = n_nodes + 1
+               tmp_recv(iProc) = 0
             end if
-         end do
+            tmp_recv(iProc) = tmp_recv(iProc) + 1
+         end if
       end do
 
       ! Generate the Node structure
       ! Replaces tmp with a mapping to node
-      ! Repurposes tmp_recv as index
-      allocate(nodes(n_nodes))
-      allocate(proc_map(0:nprocs-1))
+      ! Restarts tmp_recv counting
+      allocate(proc_map(0:nprocs-1), stat=ierror)
+      if (ierror /= 0) write(*,*) 'error allocating 1'
+      allocate(nodes(n_nodes), stat=ierror)
+      if (ierror /= 0) write(*,*) 'error allocating 2'
+      allocate(tmp_id_recv(n_nodes), stat=ierror)
+      if (ierror /= 0) write(*,*) 'error allocating 3'
       proc_map = -1
       iNow = 0
-      iNode = 0
-      do iDim=1, m%sim%numdim
-         do iTmp = numcell + 1, numcell_clone
-            iCell = clone_map(iTmp-numcell)
-            iProc = get_proc_id(iCell, nprocs, partition)
-            iNode = proc_map(iProc)
-            if (iNode < 0) then
-               ! initialize node structure and repurpose tmp_recv(iProc)
-               iNow = iNow + 1
-               iNode = iNow
-               proc_map(iProc) = iNode
-               nodes(iNode)%rank = iProc
-               nodes(iNode)%status = IDLE
-               nodes(iNode)%nRecv = tmp_recv(iProc)
-               allocate(tmp_id_recv(tmp_recv(iProc)))
-               allocate(nodes(iNode)%recv_map(tmp_recv(iProc)))
-               tmp_recv(iProc) = 0
-            end if
-            tmp_recv(iProc) = tmp_recv(iProc) + 1
-            index = tmp_recv(iProc)
-            tmp_id_recv(index) = iCell - partition(iProc) + 1
-            nodes(iNode)%recv_map(index) = iTmp
-         end do
+      do iTmp = numcell + 1, numcell_clone
+         iCell = clone_map(iTmp-numcell)
+         iProc = get_proc_id(iCell, nprocs, partition)
+         if (proc_map(iProc) < 0) then
+            ! First neighbor for given processor:
+            ! initialize node structure and repurpose tmp_recv(iProc)
+            iNow = iNow + 1
+            proc_map(iProc) = iNow
+            nodes(iNow)%rank = iProc
+            nodes(iNow)%status = IDLE
+            nodes(iNow)%nRecv = tmp_recv(iProc)
+            allocate(nodes(iNow)%recv_map(nodes(iNow)%nrecv))
+            call tmp_id_recv(iNow)%alloc(nodes(iNow)%nrecv, DATA_I)
+            tmp_id_recv(iNow)%i = -100
+            tmp_recv(iProc) = 0
+         end if
+         iNode = proc_map(iProc)
+         tmp_recv(iProc) = tmp_recv(iProc) + 1
+         index = tmp_recv(iProc)
+         tmp_id_recv(iNode)%i(index) = iCell - partition(iProc) + 1
+         nodes(iNode)%recv_map(index) = iTmp
       end do
+      if (iNow /= n_nodes) then
+         write(*,*) g_myid, '__UNEQUAL NNODES__:    ',iNow, n_nodes
+      end if
 
       ! Deallocate temporary memory
       deallocate(clone_map)
@@ -450,10 +458,8 @@ contains
       ! Now Ask other processors what to send
       ! and let them know what we expect to receive
       ! repurpose tmp_recv as a MPI request
-      
       do iNode = 1, n_nodes
          iProc = nodes(iNode)%rank
-         nodes(iNode)%nRecv = tmp_recv(iProc)
          ! post receive for how many we need to send
          call mpi_irecv(nodes(iNode)%nSend, 1, MPI_INTEGER, &
              nodes(iNode)%rank, 1, myComm, nodes(iNode)%request_recv, ierror)
@@ -461,7 +467,7 @@ contains
          call mpi_isend(nodes(iNode)%nRecv, 1, MPI_INTEGER, &
               nodes(iNode)%rank, 1, myComm, tmp_recv(iNode), ierror)
          ! post IDs of cells we expect to receive
-         call mpi_isend(tmp_id_recv, nodes(iNode)%nRecv, MPI_INTEGER, &
+         call mpi_isend(tmp_id_recv(iNode)%i, nodes(iNode)%nRecv, MPI_INTEGER, &
              nodes(iNode)%rank, 3, myComm, nodes(iNode)%request_send, ierror)
       end do
 
@@ -487,8 +493,10 @@ contains
 #endif
 
       ! Deallocate temporary data structures
-      if ( allocated(tmp_id_recv) ) deallocate(tmp_id_recv)
       if ( allocated(tmp_recv) ) deallocate(tmp_recv)
+      do iProc=1,n_nodes
+         call tmp_id_recv(iProc)%release()
+      end do
          
     END ASSOCIATE
 
