@@ -12,12 +12,16 @@ end module timer_module
 
 module mesh_state_types
   use define_kind
+  use pio_interface, only: pio_2d_t
   public
   
   type mesh_state_core_t
      real(REAL64), dimension(:), pointer :: rho
   end type mesh_state_core_t
   type mesh_state_frac_var_t
+     integer :: nmat
+     integer :: ncells
+     type(pio_2d_t) :: obj
   end type mesh_state_frac_var_t
   type mesh_state_frac_core_t
      type(mesh_state_frac_var_t) :: mass
@@ -134,6 +138,7 @@ module mesh_types
   type levels_t
      integer, pointer :: numtop
      integer, pointer :: allnumtop
+     integer, dimension(:), pointer :: ltop
      integer, dimension(:), pointer :: alltop
      integer, dimension(:), pointer :: ltop_nv
      integer, dimension(:), pointer :: cell_level
@@ -228,6 +233,34 @@ module mesh_types
          deallocate(m%faces)
       end if
     end subroutine release_mesh
+    subroutine nullify_mesh(m)
+      type(mesh_t) :: m
+      ! nullify cell members
+      nullify(m%cells%numcell)
+      nullify(m%cells%sum_numcell)
+      nullify(m%cells%max_numcell)
+      nullify(m%cells%numcell_clone)
+      nullify(m%cells%mxcell)
+      nullify(m%cells%cell_address)
+      nullify(m%cells%cell_active)
+      nullify(m%cells%cell_center)
+      nullify(m%cells%cell_position)
+      nullify(m%cells%cell_half)
+      nullify(m%cells%cell_half_lo)
+      nullify(m%cells%cell_half_hi)
+      nullify(m%cells%vcell)
+      nullify(m%cells%global_numcell)
+      nullify(m%cells%global_base)
+      nullify(m%cells%global_base_old)
+
+      ! nullify face members
+      nullify(m%faces%face_num)
+      nullify(m%faces%face_hi)
+      nullify(m%faces%face_lo)
+      nullify(m%faces%face_flag)
+      nullify(m%faces%face_id)
+      nullify(m%faces%face_local)
+    end subroutine nullify_mesh
 end module mesh_types
 
 module mesh_state_accessors
