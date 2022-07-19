@@ -385,7 +385,6 @@ contains
 
       ! Initialize convenience scalars
       nprocs = size(partition, 1)
-      write(*,*) 'myid=', myid, ': partition=', partition
       iStart = partition(myid)
       iEnd = partition(myid + 1) - 1
 
@@ -471,8 +470,6 @@ contains
              nodes(iNode)%rank, 3, myComm, nodes(iNode)%request_send, ierror)
       end do
 
-      call flush()
-      call clone_barrier()
       ! Wait for communications to end and collect up what we need to send
       do iNode=1, n_nodes
          iProc = nodes(iNode)%rank
@@ -488,8 +485,6 @@ contains
       call mpi_waitall(n_nodes, tmp_recv(1:n_nodes), MPI_STATUSES_IGNORE, ierror)
       call mpi_waitall(n_nodes, nodes(:)%request_recv, MPI_STATUSES_IGNORE, ierror)
       call mpi_waitall(n_nodes, nodes(:)%request_send, MPI_STATUSES_IGNORE, ierror)
-      call flush()
-      call clone_barrier()
 #endif
 
       ! Deallocate temporary data structures

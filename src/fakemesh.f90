@@ -245,13 +245,13 @@ contains
     end if
     iStart = values(myID) 
     nCount = values(myID+1) - values(myID)
-    if (myID == 0) then
-       write(*,*) 'MPI Partitioning:'
-       do i = 0, nprocs-1
-          write(*, *) i, values(i), values(i+1), values(i+1) - values(i)
-       end do
-       write(*,*) '---------------'
-    end if
+    ! if (myID == 0) then
+    !    write(*,*) 'MPI Partitioning:'
+    !    do i = 0, nprocs-1
+    !       write(*, *) i, values(i), values(i+1), values(i+1) - values(i)
+    !    end do
+    !    write(*,*) '---------------'
+    ! end if
 
   end function gen_partition
 
@@ -397,7 +397,7 @@ contains
   subroutine init_from_PIO(self, piofile, mpinprocs, mpiid)
     ! Initializes a mesh from a PIO file
     use iso_fortran_env, only: INT64, REAL64
-    use clone_lib_module, only: clone_get, clone_base_init, clone_init
+    use clone_lib_module, only: clone_get, clone_base_init, clone_init, clone_barrier
     use pio_interface
     implicit none
 
@@ -501,10 +501,11 @@ contains
       
       !*-- initialize clones
       call clone_init(self%m, nbrs, myid, m%cells%cell_address(0:nprocs))
-      
+
+      call clone_barrier()
+      if (myid == 0 ) write(*,*) 'Done initializing, reading data'
       !*-- Update cell centers
       allocate(m%cells%cell_center(m%cells%numcell_clone, ndim))
-      if (myid == 0) write(*,*) 'getting centers'
       do iDim = 1, ndim
          call read_and_clone(m%cells%cell_center(:,iDim), "cell_center", self%id, iStart, nCount, iDim)
       end do
@@ -525,8 +526,12 @@ contains
       allocate(m%levels%cell_level(m%cells%numcell_clone))
       call read_and_clone(m%levels%cell_level, "cell_level", self%id, iStart, nCount)
 
+      call clone_barrier()
+      if (myid == 0 ) write(*,*) 'Done reading data, initializing faces'
       call self%init_PIO_faces(iStart, nCount, nbrs)
       deallocate(nbrs)
+      call clone_barrier()
+      if (myid == 0 ) write(*,*) 'Done initializing faces'
     END ASSOCIATE
   end subroutine init_from_PIO
 

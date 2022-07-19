@@ -33,7 +33,7 @@ end subroutine testme
 program test
   use fakemesh
   use mesh_state_types
-  use clone_lib_module, only: clone_exit
+  use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs
   implicit none
   type(fakemesh_t) :: fm
   type(mesh_state_frac_core_t) :: frac_core
@@ -45,16 +45,18 @@ program test
   call GET_COMMAND_ARGUMENT(1, fname)
   
 #ifdef EP_MPI
+
   call fm%init_from_PIO(trim(fname))
+  myid = clone_myid()
+  nprocs = clone_nprocs()
 #else
   call GET_COMMAND_ARGUMENT(2, arg)
   read(arg,*) nprocs
   call fm%init_from_PIO(trim(fname), nprocs, myid)
 #endif
-  
-  write(*,*) 'releasing'
+  if (myid == 0) write(*,*) 'releasing'
   call fm%release_PIO()
   call clone_exit()
   
-  write(*,*) 'woohoo', trim(fname)
+  if (myid == 0) write(*,*) 'woohoo', trim(fname)
 end program test
