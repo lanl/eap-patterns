@@ -322,42 +322,247 @@ contains
       the_ID = new_clone_id
 
     end subroutine update_clone_id
-    integer(INT64) function get_clone_id(the_ID, the_count, the_clone_map)
-      ! Checks through the clone map to see if the_ID exists already.
-      ! If not, adds it to the_clone_map, increments the_count
-      use iso_fortran_env, only: INT64
-      implicit none
+    
+  end subroutine update_nbrs_and_get_clone_map
 
-      integer(INT64), intent(in) :: the_ID
-      integer(INT64), intent(inout) :: the_count
-      integer(INT64), intent(inout) :: the_clone_map(:)
+  subroutine clone_update_AMR_boundary(m, nbrs, clone_map, pioid)
+    ! Addes additional clones to cells that lie
+    ! on the boundary
+    use iso_fortran_env, only: INT64
+    use mesh_types, only: mesh_t
+    use pio_interface, only: pio_get_range_i64, pio_release
+    implicit none
 
-      integer :: j
+    type(mesh_t) :: m
+    integer(INT64) :: nbrs(:,:)
+    integer(INT64), intent(in) :: clone_map(:)
+    integer, intent(in) :: pioid
 
-      get_clone_id = -1
+    ! magic offsets for xRage mesh
+    integer, parameter :: offsets(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
 
-      ! Search backwards through the clone array
-      ! Must be a smarter way to do this.
-      ! This is an n^2 search.  
-      do j = the_count, 1, -1
-         if (the_clone_map(j) == the_ID) then
-            get_clone_id = j
-            exit
-         end if
-      end do
+    integer :: iTop, iDim, iProc, iBase, iNode, jTmp, iClone, ierror, iLast, iTmp
+    integer :: n_shift, n_additional, n_external, old_id
+    integer(INT64) :: iCell, iNbr
+    integer(INT64), pointer :: tmp_cell_level(:)
+    integer, pointer :: old_cell_level(:)
 
-      ! Increment the_count if we need to
-      if (get_clone_id < 0) then
-         the_count = the_count + 1
-         the_clone_map(the_count) = the_ID
-         get_clone_id = the_count
+    integer, allocatable :: clone_to_proc(:), new_index(:)
+    integer, allocatable :: node_map(:), node_count(:), sister_clones(:,:)
+    type(data_t), allocatable :: new_remote_id(:)
+    integer, allocatable :: request_send(:), new_recv_map(:), new_send_size(:)
+
+    ASSOCIATE( &
+         ndim => m%sim%numdim, &
+         numcell => m%cells%numcell, &
+         numcell_clone => m%cells%numcell_clone, &
+         proc_start => m%cells%cell_address, &
+         numtop => m%levels%numtop, &
+         ltop => m%levels%ltop, &
+         allnumtop => m%levels%allnumtop, &
+         alltop => m%levels%alltop, &
+         cell_level => m%levels%cell_level &
+         )
+
+      !*-- Update AMR cell_level and insert clones for coarse cells at high boundaries
+      tmp_cell_level => pio_get_range_i64(pioid, "cell_level", 0, proc_start(g_myid),proc_start(g_myid+1)-proc_start(g_myid))
+      allocate(m%levels%cell_level(numcell_clone))
+      m%levels%cell_level(1:numcell) = tmp_cell_level
+      call pio_release(tmp_cell_level)
+      call clone_get(m%levels%cell_level)
+
+      if (ndim < 2 .or. numcell_clone == numcell) then
+         ! no changes required
+         return
       end if
 
-    end function get_clone_id
+      ! convenience scalar
+      n_external = numcell_clone - numcell
+      ! Set node counts to existing values and map clones to nodes
+      allocate(node_count(n_nodes))
+      allocate(node_map(n_external)) 
+      node_map = -1
+      do iNode = 1, n_nodes
+         iProc = nodes(iNode)%rank
+         node_count(iNode) = nodes(iNode)%nRecv
+         node_map(nodes(iNode)%recv_map - numcell) = iNode
+      end do
 
-  end subroutine update_nbrs_and_get_clone_map
-  
-  subroutine clone_init(m, nbrs, myid, partition)
+      ! initialize the index map that will provide new indices of old clones
+      allocate(new_index(n_external))
+      do iCell = 1, n_external
+         new_index(iCell) = iCell
+      end do
+
+      n_additional = 0
+      n_shift = 2 * ndim - 3 ! 1 extra in 2D; 3 extra in 3D; 1D was eliminated above
+      allocate(sister_clones(n_shift, n_external)) ! IDs of new clone cells
+      sister_clones = 0
+      ! calculate which clones need sister clones
+      do iDim = 1, ndim
+         do iTop = 1, numtop
+
+            iCell = ltop(iTop)
+
+            ! Lo side
+            iNbr = nbrs(iCell, 2 * iDim - 1) 
+            if ((iNbr > numcell) .and. (m%levels%cell_level(iNbr) > m%levels%cell_level(iCell))) then
+               iNbr = iNbr - numcell
+               iProc = node_map(iNbr)
+               node_count(iNode) = node_count(iNode) + n_shift ! new count of cells on processor
+               n_additional = n_additional + n_shift           ! Number of new clones
+               iBase = clone_map(iNbr) - proc_start(iProc)
+               sister_clones(1:n_shift, iNbr) = iBase + offsets(1:n_shift, iDim)
+               ! Clones higher than iNbr have to be shifted
+               new_index(iNbr + 1 : n_external) = new_index(iNbr + 1 : n_external) + n_shift
+            end if
+
+            ! Hi Side
+            iNbr = nbrs(iCell, 2 * iDim)
+            if ((iNbr > numcell) .and. (m%levels%cell_level(iNbr) > m%levels%cell_level(iCell))) then
+               iNbr = iNbr - numcell
+               iProc = node_map(iNbr + numcell)
+               node_count(iNode) = node_count(iNode) + n_shift ! new count of cells on processor
+               n_additional = n_additional + n_shift           ! Number of new clones
+               iBase = clone_map(iNbr) - proc_start(iProc)
+               sister_clones(:, iNbr) = iBase + offsets(:, iDim)
+               ! Clones higher than iNbr have to be shifted
+               new_index(iNbr + 1 : n_external) = new_index(iNbr + 1 : n_external) + n_shift 
+            end if
+         end do
+      end do
+
+      ! Deallocate node_map, since no longer needed
+      deallocate(node_map)
+
+      ! At this point:
+      !  - n_additional = number of new clones needed
+      !  - sister_clones = remote IDs of sister clones of given neighbor
+      !  - new_index = new ID of existing clones
+      !  - node_count holds the new size of data we expect to receive
+
+      ! Now we need to
+      !  - reset the neighbor IDs in nbrs based on new_index
+      !  - reacalculate what remote IDs we expect to receive from each processor
+      !  - send those IDs to the remote processor
+      !  - receive the new recv_map from remote processorA
+
+      ! allocate tmp space for MPI communications
+      allocate(new_remote_id(n_nodes), request_send(n_nodes), new_send_size(n_nodes))
+      request_send = MPI_REQUEST_NULL
+
+      do iNode = 1, n_nodes
+         iProc = nodes(iNode)%rank
+         ! post send and receive for new size
+         call mpi_isend(node_count(iNode), 1, MPI_INTEGER, &
+              iProc, 101, myComm, nodes(iNode)%request_send, ierror)
+         call mpi_irecv(new_send_size(iNode), 1, MPI_INTEGER, &
+              iProc, 101, myComm, nodes(iNode)%request_recv, ierror)
+
+         ! Skip work if no change
+         if (node_count(iNode) == nodes(iNode)%nRecv) cycle
+
+         ! compute new remote IDs with clones inserted as required
+         ! Communicate as required
+         call new_remote_id(iNode)%alloc(node_count(iNode), DATA_I)
+         allocate(new_recv_map(node_count(iNode)))
+         iLast = 1
+         do iTmp = 1,nodes(iNode)%nRecv
+            old_id = nodes(iNode)%recv_map(iTmp)
+            iClone = old_id - numcell
+            new_recv_map(iLast) = new_index(iClone)
+            new_remote_id(iNode)%i(iLast) = clone_map(iClone) - proc_start(iProc)
+            iLast = iLast + 1
+            if (sister_clones(1, iClone) > 0) then
+               do jTmp = 1, n_shift
+                  new_remote_id(iNode)%i(iLast) = sister_clones(jTmp, iClone)
+                  new_recv_map(iLast) = new_index(iClone) + jTmp
+                  iLast = iLast + 1
+               end do
+            end if
+         end do
+
+         ! send the new_remote_ids to remote processor
+         call mpi_isend(new_remote_id(iNode)%i, node_count(iNode), MPI_INTEGER, &
+              iProc, 102, myComm, request_send(iNode), ierror)
+
+         ! Update receive counts and receive map
+         nodes(iNode)%nrecv = iLast
+         call move_alloc(new_recv_map, nodes(iNode)%recv_map)
+
+      end do
+
+      ! Deallocate sister_clones, since no longer needed
+      deallocate(sister_clones)
+
+      ! Now receive the data from the remote and post request for send IDs
+      do iNode = 1, n_nodes
+         iProc = nodes(iNode)%rank
+         call mpi_wait(nodes(iNode)%request_recv, MPI_STATUS_IGNORE, ierror)
+         if (new_send_size(iNode) == nodes(iNode)%nSend) then
+            nodes(iNode)%request_recv = MPI_REQUEST_NULL
+            cycle
+         end if
+         nodes(iNode)%nsend = new_send_size(iNode)
+         deallocate(nodes(iNode)%send_id)
+         allocate(nodes(iNode)%send_id(new_send_size(iNode)))
+         call mpi_irecv(nodes(iNode)%send_id, nodes(iNode)%nSend, MPI_INTEGER, &
+              iProc, 102, myComm, nodes(iNode)%request_recv, ierror)
+      end do
+
+      ! Update mesh data structures
+      numcell_clone = numcell_clone + n_additional
+      allnumtop = numtop + n_additional
+      deallocate(m%levels%alltop)
+      allocate(m%levels%alltop(allnumtop))
+      m%levels%alltop(1:numtop) = m%levels%ltop(1:numtop)
+      do iTmp = 1, (allnumtop-numtop)
+         m%levels%alltop(iTmp) = numcell + iTmp
+      end do
+
+
+      ! Now need to update the neighbors array.
+      do iTmp = 1, numtop
+         iCell = ltop(iTmp)
+         do iDim = 1,2*nDim
+            iNbr = nbrs(iCell, iDim)
+            if (iNbr > numcell) then
+               nbrs(iCell,iDim) = new_index(iNbr - numcell)
+            end if
+         end do
+      end do
+
+      ! Deallocate new_index, since no longer needed
+      deallocate(new_index)
+
+      ! Wait for MPI receives to finish
+      call mpi_waitall(n_nodes, nodes(:)%request_recv, MPI_STATUSES_IGNORE, ierror)
+
+      !*-- Resize AMR cell_level with new ghosts and update clones
+      old_cell_level => m%levels%cell_level
+      allocate(m%levels%cell_level(numcell_clone))
+      write(*,*) 'resizing cell_lelve to ', numcell_clone
+      m%levels%cell_level(1:numcell) = old_cell_level(1:numcell)
+      deallocate(old_cell_level)
+      call clone_get(m%levels%cell_level)
+
+      ! Wait for MPI sends to finish
+      call mpi_waitall(n_nodes, nodes(:)%request_send, MPI_STATUSES_IGNORE, ierror)
+      call mpi_waitall(n_nodes, request_send, MPI_STATUSES_IGNORE, ierror)
+
+      ! Deallocate memory that was used for MPI buffers
+      do iNode = 1, n_nodes
+         call new_remote_id(iNode)%release()
+      end do
+      deallocate(new_remote_id)
+      deallocate(node_count)
+
+
+    END ASSOCIATE
+
+  end subroutine clone_update_AMR_boundary
+
+  subroutine clone_init(m, nbrs, myid, partition, pioid)
     ! Initializes the clone arrays and
     ! fixes the neighboring cell IDs 
     use iso_fortran_env, only: INT64
@@ -367,6 +572,7 @@ contains
     integer(INT64), allocatable :: nbrs(:,:)
     integer(INT64) :: partition(0:)
     integer, intent(in) :: myid
+    integer, intent(in) :: pioid
     
     
     integer :: l, nprocs, ierror
@@ -448,6 +654,8 @@ contains
          write(*,*) g_myid, '__UNEQUAL NNODES__:    ',iNow, n_nodes
       end if
 
+
+      
       ! Deallocate temporary memory
       deallocate(clone_map)
       deallocate(proc_map)
@@ -492,7 +700,11 @@ contains
       do iProc=1,n_nodes
          call tmp_id_recv(iProc)%release()
       end do
-         
+
+
+      ! Now update clone ids for AMR transfers
+      call clone_update_AMR_boundary(m, nbrs, clone_map, pioid)
+      
     END ASSOCIATE
 
   CONTAINS
@@ -513,6 +725,9 @@ contains
       end do
     end function get_proc_id
   end subroutine clone_init
+
+
+  
   subroutine clone_get_vw(vw, intFlag)
     type(var_wrapper), intent(inout) :: vw(:)
     integer, intent(in) :: intFlag

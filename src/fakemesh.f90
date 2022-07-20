@@ -500,7 +500,7 @@ contains
       call pio_release(daughter)
       
       !*-- initialize clones
-      call clone_init(self%m, nbrs, myid, m%cells%cell_address(0:nprocs))
+      call clone_init(self%m, nbrs, myid, m%cells%cell_address(0:nprocs), pioID)
 
       call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done initializing, reading data'
@@ -522,10 +522,6 @@ contains
          m%cells%cell_half_hi(:, iDim) = m%cells%vcell/2.0_REAL64
       end do
       
-      !*-- Update AMR cell_level
-      allocate(m%levels%cell_level(m%cells%numcell_clone))
-      call read_and_clone(m%levels%cell_level, "cell_level", self%id, iStart, nCount)
-
       call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done reading data, initializing faces'
       call self%init_PIO_faces(iStart, nCount, nbrs)
