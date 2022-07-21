@@ -1,10 +1,10 @@
-module test_cells
+module tests
   ! Tests of cell based loops
 
   public
   
 contains
-  function test_sum(m, values, n_iter) result(my_result)
+  function topcell_sum(m, values, n_iter) result(my_result)
     use iso_fortran_env, only: REAL64
     use mesh_types, only: mesh_t
     use clone_lib_module, only: clone_reduce, CLONE_SUM
@@ -31,6 +31,6 @@ contains
        my_result = my_result + partial_result
     end do
        
-  end function test_sum
-end module test_cells
+  end function topcell_sum
+end module tests
     

@@ -9,7 +9,7 @@ subroutine testme(fm)
   implicit none
   type(fakemesh_t) :: fm
   type(mesh_state_frac_core_t) :: frac_core
-  
+
   ! call derivatives_common_splits(fm%m%sim, fm%m, &
   !        frac_core, core, &
   !        gradp, intopt, &
@@ -35,8 +35,9 @@ program test
   use pio_interface, only: pio_now
   use fakemesh
   use mesh_state_types
-  use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs, clone_reduce, CLONE_SUM
-  use test_cells, only: test_sum
+  use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs, &
+       clone_reduce, CLONE_SUM, clone_barrier
+  use tests, only: topcell_sum
   implicit none
   type(fakemesh_t) :: fm
   type(mesh_state_frac_core_t) :: frac_core
@@ -51,7 +52,7 @@ program test
 
   ! Get the filename
   call GET_COMMAND_ARGUMENT(1, fname)
-  
+
 #ifdef EP_MPI
 
   call fm%init_from_PIO(trim(fname))
@@ -73,22 +74,24 @@ program test
     allocate(values(m%cells%numcell))
     values = 1
 
+    if (myid == 0 ) write(*,'(/,"-------BEGIN TESTS----------")')
+    call clone_barrier()
     t0 = pio_now()
-    my_result = test_sum(m, values, n_iter)
+    my_result = topcell_sum(m, values, n_iter)
     dt = pio_now() - t0
+    call clone_barrier()
     if (myid == 0) then
        if (my_result /= expected_result) then
-          write(*,*) 'Wrong result, expected:', expected_result, ' but got ', my_result, 'in t=', dt
+          write(*,*) 'FAIL: ', dt, 'topcell_sum', expected_result, my_result
        else
-          write(*,*) 'simple test time=', dt
+          write(*,*) 'PASS: ', dt, 'topcell_sum'
        end if
     end if
+    if (myid == 0 ) write(*,'("--------END TESTS-----------",/)')
 
-  if (myid == 0) write(*,*) 'releasing'
-  call fm%release_PIO()
-  call clone_exit()
-
-
+    if (myid == 0) write(*,*) 'releasing'
+    call fm%release_PIO()
+    call clone_exit()
 
   END ASSOCIATE
-end program
+end program test
