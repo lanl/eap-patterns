@@ -25,7 +25,7 @@ set(F90_SOURCES
   src/main.F90
   src/mem_release.f90
   src/mesh_types.f90
-  src/test_cells.f90
+  src/tests.f90
   src/util.f90
   )
 
