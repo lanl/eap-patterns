@@ -4,7 +4,7 @@ module fakemesh
   use mesh_types, only: mesh_t
   use mesh_state_types, only: mesh_state_frac_core_t
   implicit none
-  private
+  public
   public fakemesh_t
   type :: fakemesh_t
      integer :: ID = 1
@@ -268,12 +268,13 @@ contains
     integer(c_int64_t), intent(in), dimension(:,:) :: nbrs
     integer(c_int64_t) :: iEnd
     integer(kind=c_int64_t) :: nFace(5), nFaces(5,3)
-    integer :: ndim, idim, ilvl, nFaceTypes, iTmp
+    integer :: ndim, idim, ilvl, nFaceTypes, iTmp, n_shift
     integer(c_int64_t) :: iCell, id_lo,id_hi, iFace, offset_now, maxFaces, iTop
     integer(c_int64_t) :: faceIndex(5)
     integer(c_int64_t) :: idxClone
     integer, dimension(:), pointer :: cell_level  
     integer :: idMap(5,3)  ! Maps real ID to face_id array
+    integer, parameter :: offsets(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
 
     ! Two pass face creation - one pass for counting and one for creating
 
@@ -281,6 +282,12 @@ contains
       iEnd = iStart + nCount - 1
       ndim = m%sim%numdim
 
+      if (iDim > 1 ) then
+         n_shift = 2 * iDim - 3
+      else
+         n_shift = 0
+      end if
+      
       cell_level => m%levels%cell_level
 
       ! Count faces in all directions
@@ -294,10 +301,22 @@ contains
             id_lo = nbrs(iCell, 2 * idim - 1)
             iFace = get_face_type(iCell, id_lo, LO_SIDE)
             nFaces(iFace, idim) = nFaces(iFace, idim) + 1
-
+            if (cell_level(id_lo) > cell_level(iCell)) then
+               ! add more faces based on dimensionality
+               nFaces(iFace, idim) = nFaces(iFace, idim) + n_shift
+            end if
+               
+            
             id_hi = nbrs(iCell, 2 * idim)
-            iFace = get_face_type(iCell, id_hi, HI_SIDE)
-            nFaces(iFace,idim) = nFaces(iFace,idim) + 1
+            if (id_hi > m%cells%numcell) then
+               ! Need to add boundary faces
+               iFace = get_face_type(iCell, id_hi, HI_SIDE)
+               nFaces(iFace,idim) = nFaces(iFace,idim) + 1
+               if (cell_level(id_hi) > cell_level(iCell)) then
+                  ! add more faces based on dimensionality
+                  nFaces(iFace, idim) = nFaces(iFace, idim) + n_shift
+               end if
+            end if
          end do META_CELL
          ! Total number of faces in this direction
          faces%face_num(idim) = sum(nFaces(:,idim))
@@ -352,13 +371,34 @@ contains
             faces%face_local(iFace, LO_SIDE, idim) = id_lo
             faces%face_local(iFace, HI_SIDE, idim) = iCell
             faceIndex(iTmp) = faceIndex(iTmp) + 1
+            
+            if (cell_level(id_lo) > cell_level(iCell)) then
+               ! Add in n_shift more faces
+               do iTmp = 1, n_shift
+                  faces%face_local(iFace, LO_SIDE, idim) = id_lo + offsets(iTmp, idim)
+                  faces%face_local(iFace, HI_SIDE, idim) = iCell
+                  faceIndex(iTmp) = faceIndex(iTmp) + 1
+               end do
+            end if
 
-            id_hi = nbrs(iCell, 2 * idim )
-            iTmp = idMap(get_face_type(iCell, id_hi, HI_SIDE), iDim)
-            iFace = faces%face_lo(iTmp, iDim) + faceIndex(iTmp)
-            faces%face_local(iFace, LO_SIDE, idim) = iCell
-            faces%face_local(iFace, HI_SIDE, idim) = id_hi
-            faceIndex(iTmp) = faceIndex(iTmp) + 1
+            if (id_hi > m%cells%numcell) then
+               ! Need to add boundary faces
+               id_hi = nbrs(iCell, 2 * idim )
+               iTmp = idMap(get_face_type(iCell, id_hi, HI_SIDE), iDim)
+               iFace = faces%face_lo(iTmp, iDim) + faceIndex(iTmp)
+               faces%face_local(iFace, LO_SIDE, idim) = iCell
+               faces%face_local(iFace, HI_SIDE, idim) = id_hi
+               faceIndex(iTmp) = faceIndex(iTmp) + 1
+               
+               if (cell_level(id_hi) > cell_level(iCell)) then
+                  ! Add in n_shift more faces
+                  do iTmp = 1, n_shift
+                     faces%face_local(iFace, LO_SIDE, idim) = iCell
+                     faces%face_local(iFace, HI_SIDE, idim) = id_hi + offsets(iTmp, idim)
+                     faceIndex(iTmp) = faceIndex(iTmp) + 1
+                  end do
+               end if
+            end if
          end do LOOP_CELL
       end do LOOP_DIM
 

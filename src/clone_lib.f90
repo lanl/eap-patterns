@@ -1,5 +1,6 @@
 ! This is where MPI communications go, for now only serial
 module clone_lib_module
+  
   use define_kind
   use var_wrapper_class, only : var_wrapper
   use iso_fortran_env, only: INT64, REAL64
@@ -8,12 +9,8 @@ module clone_lib_module
   use mpi
   use iso_c_binding, only: c_loc
 #endif
-  implicit none
-
   
-
   
-  private
   public clone_myid
   public clone_nprocs
   public clone_get
@@ -21,10 +18,12 @@ module clone_lib_module
   public clone_base_init
   public clone_exit
   public clone_barrier
+  public clone_reduce
 
   integer, parameter :: IDLE = 1
   integer, parameter :: SENT = 2
   integer, parameter :: WAITING = 4
+
 
 #ifdef EP_MPI
   integer :: myComm = MPI_COMM_WORLD
@@ -32,7 +31,22 @@ module clone_lib_module
 
   integer :: g_nprocs = 1
   integer :: g_myid = 0
+
+  ! Reductions
+  integer, parameter :: CLONE_SUM = 1
+  integer, parameter :: CLONE_MAX = 2
+  integer, parameter :: CLONE_MIN = 3
+  interface clone_reduce
+     module procedure clone_reduce_i_0
+     module procedure clone_reduce_i_1
+     module procedure clone_reduce_i64_0
+     module procedure clone_reduce_i64_1
+     module procedure clone_reduce_r64_0
+     module procedure clone_reduce_r64_1
+  end interface clone_reduce
   
+  
+  ! Gets
   interface clone_get
      procedure clone_get_vw
      procedure clone_get_2
@@ -80,8 +94,57 @@ module clone_lib_module
   type(node_t), target, allocatable, dimension(:) :: nodes ! space for sending / receiving data
 
 
-contains
+  interface
+     module subroutine clone_reduce_i_0(result_out, value_in, op, do_bcast)
+       implicit none
+       integer, intent(out) :: result_out
+       integer, intent(in) :: value_in
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_i_0
+     module subroutine clone_reduce_i_1(result_out, value_in, op, do_bcast)
+       implicit none
+       integer, intent(out) :: result_out
+       integer, intent(in) :: value_in(:)
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_i_1
 
+     module subroutine clone_reduce_i64_0(result_out, value_in, op, do_bcast)
+       use iso_fortran_env, only: INT64
+       implicit none
+       integer(INT64), intent(out) :: result_out
+       integer(INT64), intent(in) :: value_in
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_i64_0
+     module subroutine clone_reduce_i64_1(result_out, value_in, op, do_bcast)
+       implicit none
+       integer(INT64), intent(out) :: result_out
+       integer(INT64), intent(in) :: value_in(:)
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_i64_1
+
+     module subroutine clone_reduce_r64_0(result_out, value_in, op, do_bcast)
+       use iso_fortran_env, only: REAL64
+       implicit none
+       real(REAL64), intent(out) :: result_out
+       real(REAL64), intent(in) :: value_in
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_r64_0
+     module subroutine clone_reduce_r64_1(result_out, value_in, op, do_bcast)
+       implicit none
+       real(REAL64), intent(out) :: result_out
+       real(REAL64), intent(in) :: value_in(:)
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_r64_1
+  end interface
+
+contains
+  
   integer function clone_nprocs()
     implicit none
     clone_nprocs = g_nprocs

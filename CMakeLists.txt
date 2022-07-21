@@ -18,13 +18,15 @@ set(CMAKE_BUILD_TYPE Release CACHE STRING "Buld type")
 # Specify sources
 set(F90_SOURCES
   src/clone_lib.f90
+  src/clone_reduce.f90
   src/define_kind.f90 
+  src/derivatives_common_template.f90
   src/fakemesh.f90 
+  src/main.F90
   src/mem_release.f90
   src/mesh_types.f90
+  src/test_cells.f90
   src/util.f90
-  src/main.F90
-  src/derivatives_common_template.f90
   )
 
 set_source_files_properties(

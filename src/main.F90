@@ -31,15 +31,23 @@ subroutine testme(fm)
   !     logical,     intent(in), optional :: do_special
 end subroutine testme
 program test
+  use iso_fortran_env, only: REAL64, INT64
+  use pio_interface, only: pio_now
   use fakemesh
   use mesh_state_types
-  use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs
+  use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs, clone_reduce, CLONE_SUM
+  use test_cells, only: test_sum
   implicit none
   type(fakemesh_t) :: fm
   type(mesh_state_frac_core_t) :: frac_core
   character(len=4096) :: fname
   character(len=4096) :: arg
   integer :: nprocs, myid
+  integer :: n_iter
+  real(REAL64) :: my_result, expected_result
+  real(REAL64), allocatable :: values(:)
+  integer(INT64) :: total_numtop, local_numtop
+  real(REAL64) :: t0, dt
 
   ! Get the filename
   call GET_COMMAND_ARGUMENT(1, fname)
@@ -54,9 +62,35 @@ program test
   read(arg,*) nprocs
   call fm%init_from_PIO(trim(fname), nprocs, myid)
 #endif
+  ASSOCIATE(m => fm%m)
+    ! Calculate the expected results
+    ! Simple_test returns the n_iter * total_numtop
+    n_iter = 5
+    local_numtop = m%levels%numtop
+    call clone_reduce(total_numtop, local_numtop, CLONE_SUM)
+    expected_result = real(n_iter,kind=REAL64) * real(total_numtop,kind=REAL64)
+
+    write(*,*) 'Allocating data for test'
+    allocate(values(m%cells%numcell))
+    values = 1
+
+    write(*,*) 'Running test'
+    t0 = pio_now()
+    my_result = test_sum(m, values, n_iter)
+    dt = pio_now() - t0
+    if (myid == 0) then
+       if (my_result /= expected_result) then
+          write(*,*) 'Wrong result, expected:', expected_result, ' but got ', my_result
+       else
+          write(*,*) 'simple test time=', dt
+       end if
+    end if
+
   if (myid == 0) write(*,*) 'releasing'
   call fm%release_PIO()
   call clone_exit()
-  
-  if (myid == 0) write(*,*) 'woohoo', trim(fname)
-end program test
+
+
+
+  END ASSOCIATE
+end program
