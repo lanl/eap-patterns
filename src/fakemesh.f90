@@ -133,40 +133,6 @@ contains
       
     
   end subroutine init_PIO_frac_core
-  subroutine release_mesh(m)
-    use mem_release, only: release
-    type(mesh_t), intent(inout) :: m
-    if (allocated(m%cells)) then
-       ! Release cells
-       call release(m%cells%numcell)
-       call release(m%cells%sum_numcell)
-       call release(m%cells%max_numcell)
-       call release(m%cells%numcell_clone)
-       call release(m%cells%mxcell)
-       call release(m%cells%cell_address)
-       call release(m%cells%cell_active)
-       call release(m%cells%cell_center)
-       call release(m%cells%cell_position)
-       call release(m%cells%cell_half)
-       call release(m%cells%cell_half_lo)
-       call release(m%cells%cell_half_hi)
-       call release(m%cells%vcell)
-       call release(m%cells%global_numcell)
-       call release(m%cells%global_base)
-       call release(m%cells%global_base_old)
-       deallocate(m%cells)
-    end if
-    if (allocated(m%faces)) then
-       ! Release faces
-       call release(m%faces%face_num)
-       call release(m%faces%face_hi)
-       call release(m%faces%face_lo)
-       call release(m%faces%face_flag)
-       call release(m%faces%face_id)
-       call release(m%faces%face_local)
-       deallocate(m%faces)
-    end if
-  end subroutine release_mesh
 
   subroutine release_PIO(self)
     use mesh_types, only: release_mesh
@@ -283,7 +249,7 @@ contains
       ndim = m%sim%numdim
 
       if (iDim > 1 ) then
-         n_shift = 2 * iDim - 3
+         n_shift = 2 * ndim - 3
       else
          n_shift = 0
       end if
@@ -478,9 +444,7 @@ contains
       !*-- Initialize the PIO class
       if (myid == 0) write(*,*) 'reading PIO: ', piofile
 
-      !*-- TODO(sriram): Change pio_init() to do a "bare" initialization
-      !*--               where it does not read in the cell and daughter
-      !*--               arrays for whole simulation
+      !*-- initialize a bare "parallel" PIO struct
       call pio_init_par(pioid, piofile, nprocs, myid, 0, 1)
       
       !*-- Read in the total number of cells and dimensions
@@ -494,7 +458,7 @@ contains
       m%sim%numdim = nDim
 
       !*-- Generate the MPI partitioning, and current PE's iStart and nCount
-      m%cells%cell_address(0:nprocs) => &
+      m%cells%cell_address => &
            gen_partition(PIOID, ndim, nCell, nprocs, myID, iStart, nCount)
 
       !*-- Allocate mesh scalars 
@@ -518,7 +482,7 @@ contains
       end do
 
       !*-- Count number of top level cells
-      daughter => pio_daughter(self%id)
+      !** daughter => pio_daughter(self%id)
       daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
       m%levels%numtop = 0
       m%levels%allnumtop = 0
@@ -540,7 +504,7 @@ contains
       call pio_release(daughter)
       
       !*-- initialize clones
-      call clone_init(self%m, nbrs, myid, m%cells%cell_address(0:nprocs), pioID)
+      call clone_init(self%m, nbrs, pioID)
 
       call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done initializing, reading data'

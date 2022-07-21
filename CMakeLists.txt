@@ -39,9 +39,15 @@ set_source_files_properties(
 )
 
 if (EP_SANITIZE )
-  set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} " -fsanitize=address ")
-  set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fsanitize=address ")
-  set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -fsanitize=address ")
+  if ("${CMAKE_Fortran_COMPILER_ID}" EQUAL "GNU")
+    set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -fsanitize=address ")
+  endif()
+  if ("${CMAKE_C_COMPILER_ID}" EQUAL "GNU")
+    set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} " -fsanitize=address ")
+  endif()
+  if ("${CMAKE_CXX_COMPILER_ID}" EQUAL "GNU")
+    set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fsanitize=address ")
+  endif()
 endif ()
 # set(CMAKE_Fortran_FLAGS ${CMAKE_Fortran_FLAGS} " -fsanitize=address -DEP_PIO ")
 
@@ -61,6 +67,7 @@ if ( EP_PIO )
 endif ()
 
 add_executable(mygrad ${F90_SOURCES} ${CXX_SOURCES} ${CXX_HEADERS})
+set_property(TARGET mygrad PROPERTY LINKER_LANGUAGE Fortran)
 
 
 if ( EP_MPI )

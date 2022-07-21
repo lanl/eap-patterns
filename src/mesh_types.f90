@@ -204,6 +204,7 @@ module mesh_types
       type(mesh_t) :: m
       if (allocated(m%cells)) then
          ! Release cells
+         
          call release(m%cells%numcell)
          call release(m%cells%sum_numcell)
          call release(m%cells%max_numcell)

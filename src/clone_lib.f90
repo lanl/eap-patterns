@@ -438,6 +438,7 @@ contains
          ! no changes required
          return
       end if
+#ifdef EP_MPI
 
       ! convenience scalar
       n_external = numcell_clone - numcell
@@ -604,7 +605,6 @@ contains
       !*-- Resize AMR cell_level with new ghosts and update clones
       old_cell_level => m%levels%cell_level
       allocate(m%levels%cell_level(numcell_clone))
-      write(*,*) 'resizing cell_lelve to ', numcell_clone
       m%levels%cell_level(1:numcell) = old_cell_level(1:numcell)
       deallocate(old_cell_level)
       call clone_get(m%levels%cell_level)
@@ -620,12 +620,12 @@ contains
       deallocate(new_remote_id)
       deallocate(node_count)
 
-
+#endif
     END ASSOCIATE
 
   end subroutine clone_update_AMR_boundary
 
-  subroutine clone_init(m, nbrs, myid, partition, pioid)
+  subroutine clone_init(m, nbrs, pioid)
     ! Initializes the clone arrays and
     ! fixes the neighboring cell IDs 
     use iso_fortran_env, only: INT64
@@ -633,11 +633,7 @@ contains
     implicit none
     type(mesh_t), intent(inout) :: m
     integer(INT64), allocatable :: nbrs(:,:)
-    integer(INT64) :: partition(0:)
-    integer, intent(in) :: myid
     integer, intent(in) :: pioid
-    
-    
     integer :: l, nprocs, ierror
     integer :: iDim, iProc, iNode, iTmp, iNow, index
     integer(INT64) :: id_lo, id_hi, iCell, iStart, iEnd
@@ -649,13 +645,14 @@ contains
     ASSOCIATE(                                   &
          numtop => m%levels%numtop,              &
          numcell_clone => m%cells%numcell_clone, &
-         numcell => m%cells%numcell              &
+         numcell => m%cells%numcell,             &
+         partition => m%cells%cell_address       &
          )
 
       ! Initialize convenience scalars
       nprocs = size(partition, 1)
-      iStart = partition(myid)
-      iEnd = partition(myid + 1) - 1
+      iStart = partition(g_myid)
+      iEnd = partition(g_myid + 1) - 1
 
       ! Update the neighbor array and get a clone map of
       ! clone cell ID (from m%cells%numcell +1 -> m%cells%numcellclone)
@@ -669,7 +666,7 @@ contains
       do iTmp = numcell + 1, numcell_clone
          iCell = clone_map(iTmp - numcell)
          iProc = get_proc_id(iCell, nprocs, partition)
-         if ( iProc /= myid) then
+         if ( iProc /= g_myid) then
             if (tmp_recv(iProc) < 0) then
                ! only check tmp_recv because recv and send procs
                ! are same due to not dealing with T cells at boundaries

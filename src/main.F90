@@ -70,17 +70,15 @@ program test
     call clone_reduce(total_numtop, local_numtop, CLONE_SUM)
     expected_result = real(n_iter,kind=REAL64) * real(total_numtop,kind=REAL64)
 
-    write(*,*) 'Allocating data for test'
     allocate(values(m%cells%numcell))
     values = 1
 
-    write(*,*) 'Running test'
     t0 = pio_now()
     my_result = test_sum(m, values, n_iter)
     dt = pio_now() - t0
     if (myid == 0) then
        if (my_result /= expected_result) then
-          write(*,*) 'Wrong result, expected:', expected_result, ' but got ', my_result
+          write(*,*) 'Wrong result, expected:', expected_result, ' but got ', my_result, 'in t=', dt
        else
           write(*,*) 'simple test time=', dt
        end if
