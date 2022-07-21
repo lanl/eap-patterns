@@ -37,7 +37,7 @@ program test
   use mesh_state_types
   use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs, &
        clone_reduce, CLONE_SUM, clone_barrier
-  use tests, only: topcell_sum
+  use tests, only: test_driver
   implicit none
   type(fakemesh_t) :: fm
   type(mesh_state_frac_core_t) :: frac_core
@@ -46,7 +46,6 @@ program test
   integer :: nprocs, myid
   integer :: n_iter
   real(REAL64) :: my_result, expected_result
-  real(REAL64), allocatable :: values(:)
   integer(INT64) :: total_numtop, local_numtop
   real(REAL64) :: t0, dt
 
@@ -54,7 +53,6 @@ program test
   call GET_COMMAND_ARGUMENT(1, fname)
 
 #ifdef EP_MPI
-
   call fm%init_from_PIO(trim(fname))
   myid = clone_myid()
   nprocs = clone_nprocs()
@@ -63,35 +61,12 @@ program test
   read(arg,*) nprocs
   call fm%init_from_PIO(trim(fname), nprocs, myid)
 #endif
-  ASSOCIATE(m => fm%m)
-    ! Calculate the expected results
-    ! Simple_test returns the n_iter * total_numtop
+  
     n_iter = 5
-    local_numtop = m%levels%numtop
-    call clone_reduce(total_numtop, local_numtop, CLONE_SUM)
-    expected_result = real(n_iter,kind=REAL64) * real(total_numtop,kind=REAL64)
-
-    allocate(values(m%cells%numcell))
-    values = 1
-
-    if (myid == 0 ) write(*,'(/,"-------BEGIN TESTS----------")')
-    call clone_barrier()
-    t0 = pio_now()
-    my_result = topcell_sum(m, values, n_iter)
-    dt = pio_now() - t0
-    call clone_barrier()
-    if (myid == 0) then
-       if (my_result /= expected_result) then
-          write(*,*) 'FAIL: ', dt, 'topcell_sum', expected_result, my_result
-       else
-          write(*,*) 'PASS: ', dt, 'topcell_sum'
-       end if
-    end if
-    if (myid == 0 ) write(*,'("--------END TESTS-----------",/)')
-
+    call test_driver(fm%m, n_iter)
+    
     if (myid == 0) write(*,*) 'releasing'
     call fm%release_PIO()
     call clone_exit()
 
-  END ASSOCIATE
 end program test
