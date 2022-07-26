@@ -117,6 +117,35 @@ contains
     call clone_reduce_i64_0(result_out, tmp_val, op, do_bcast)
   end procedure clone_reduce_i64_1
   
+  module procedure clone_reduce_i_i64_0
+    implicit none
+    integer :: my_mpi_Op
+    logical :: bcast
+    integer :: ierror
+    integer(INT64) :: tmp_val
+    tmp_val = value_in
+    call clone_reduce_i64_0(result_out, tmp_val, op, do_bcast)
+  end procedure clone_reduce_i_i64_0
+
+  module procedure clone_reduce_i_i64_1
+    implicit none
+    integer(INT64) :: tmp_val
+    
+    select case (op)
+    case (CLONE_SUM)
+       tmp_val = sum(value_in)
+    case (CLONE_MAX)
+       tmp_val = maxval(value_in)
+    case (CLONE_MIN)
+       tmp_val = minval(value_in)
+       case default
+          write(*,*) 'Invalid OP sent to clone_reduce'
+          return
+    end select
+
+    call clone_reduce_i64_0(result_out, tmp_val, op, do_bcast)
+  end procedure clone_reduce_i_i64_1
+
 
   module procedure clone_reduce_r64_0
     implicit none

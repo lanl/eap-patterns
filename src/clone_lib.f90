@@ -39,6 +39,8 @@ module clone_lib_module
   interface clone_reduce
      module procedure clone_reduce_i_0
      module procedure clone_reduce_i_1
+     module procedure clone_reduce_i_i64_0
+     module procedure clone_reduce_i_i64_1
      module procedure clone_reduce_i64_0
      module procedure clone_reduce_i64_1
      module procedure clone_reduce_r64_0
@@ -109,6 +111,21 @@ module clone_lib_module
        integer, intent(in) :: op
        logical, optional, intent(in) :: do_bcast
      end subroutine clone_reduce_i_1
+
+     module subroutine clone_reduce_i_i64_0(result_out, value_in, op, do_bcast)
+       implicit none
+       integer(INT64), intent(out) :: result_out
+       integer, intent(in) :: value_in
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_i_i64_0
+     module subroutine clone_reduce_i_i64_1(result_out, value_in, op, do_bcast)
+       implicit none
+       integer(INT64), intent(out) :: result_out
+       integer, intent(in) :: value_in(:)
+       integer, intent(in) :: op
+       logical, optional, intent(in) :: do_bcast
+     end subroutine clone_reduce_i_i64_1
 
      module subroutine clone_reduce_i64_0(result_out, value_in, op, do_bcast)
        use iso_fortran_env, only: INT64
@@ -315,6 +332,7 @@ contains
        do iTmp=1,m%levels%numtop
           
           iCell = m%levels%ltop(iTmp)
+          
           ! Low side
           id_nbr = nbrs(iCell, 2 * iDim - 1)
           if (id_nbr < iStart .or. id_nbr > iEnd) then
@@ -336,7 +354,6 @@ contains
              ! On processor
              nbrs(iCell, 2 * iDim) = id_nbr - iStart + 1
           end if
-
        end do
     end do
 
@@ -428,6 +445,8 @@ contains
          )
 
       !*-- Update AMR cell_level and insert clones for coarse cells at high boundaries
+
+      !* The cell levels will be overridden with final numbers at the end
       tmp_cell_level => pio_get_range_i64(pioid, "cell_level", 0, proc_start(g_myid),proc_start(g_myid+1)-proc_start(g_myid))
       allocate(m%levels%cell_level(numcell_clone))
       m%levels%cell_level(1:numcell) = tmp_cell_level
@@ -455,7 +474,7 @@ contains
       ! initialize the index map that will provide new indices of old clones
       allocate(new_index(n_external))
       do iCell = 1, n_external
-         new_index(iCell) = iCell
+         new_index(iCell) = iCell + numcell
       end do
 
       n_additional = 0
@@ -489,7 +508,7 @@ contains
                node_count(iNode) = node_count(iNode) + n_shift ! new count of cells on processor
                n_additional = n_additional + n_shift           ! Number of new clones
                iBase = clone_map(iNbr) - proc_start(iProc)
-               sister_clones(:, iNbr) = iBase + offsets(:, iDim)
+               sister_clones(1:n_shift, iNbr) = iBase + offsets(1:n_shift, iDim)
                ! Clones higher than iNbr have to be shifted
                new_index(iNbr + 1 : n_external) = new_index(iNbr + 1 : n_external) + n_shift 
             end if
@@ -663,8 +682,8 @@ contains
       allocate(tmp_recv(0:nprocs))
       n_nodes = 0
       tmp_recv = -1
-      do iTmp = numcell + 1, numcell_clone
-         iCell = clone_map(iTmp - numcell)
+      do iTmp = 1, numcell_clone - numcell
+         iCell = clone_map(iTmp)
          iProc = get_proc_id(iCell, nprocs, partition)
          if ( iProc /= g_myid) then
             if (tmp_recv(iProc) < 0) then
@@ -681,11 +700,11 @@ contains
       ! Replaces tmp with a mapping to node
       ! Restarts tmp_recv counting
       allocate(proc_map(0:nprocs-1), stat=ierror)
-      if (ierror /= 0) write(*,*) 'error allocating 1'
+      if (ierror /= 0) write(*,*) 'error allocating proc_map'
       allocate(nodes(n_nodes), stat=ierror)
-      if (ierror /= 0) write(*,*) 'error allocating 2'
+      if (ierror /= 0) write(*,*) 'error allocating nodes'
       allocate(tmp_id_recv(n_nodes), stat=ierror)
-      if (ierror /= 0) write(*,*) 'error allocating 3'
+      if (ierror /= 0) write(*,*) 'error allocating tmp_id_recv'
       proc_map = -1
       iNow = 0
       do iTmp = numcell + 1, numcell_clone
