@@ -1,7 +1,7 @@
 submodule (clone_lib_module) clone_reduce_module
 
   use iso_fortran_env, only: INT64, REAL64
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
   use mpi
 #endif
   implicit none
@@ -21,7 +21,7 @@ contains
        bcast = .false.
     end if
     
-#ifndef EP_MPI
+#ifndef ENABLE_MPI
     result_out = value_in
 #else
     select case (op)
@@ -69,7 +69,7 @@ contains
     logical :: bcast
     integer :: ierror
 
-#ifndef EP_MPI
+#ifndef ENABLE_MPI
     result_out = value_in
 #else
     if (present(do_bcast)) then
@@ -154,7 +154,7 @@ contains
     integer :: ierror
     real(REAL64) :: local_result
 
-#ifndef EP_MPI
+#ifndef ENABLE_MPI
     result_out = value_in
 #else
     if (present(do_bcast)) then

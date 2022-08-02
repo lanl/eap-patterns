@@ -4,7 +4,7 @@ module clone_lib_module
   use define_kind
   use var_wrapper_class, only : var_wrapper
   use iso_fortran_env, only: INT64, REAL64
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
   ! include 'mpif.h'
   use mpi
   use iso_c_binding, only: c_loc
@@ -25,8 +25,10 @@ module clone_lib_module
   integer, parameter :: WAITING = 4
 
 
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
   integer :: myComm = MPI_COMM_WORLD
+#else
+  integer :: myComm = -1
 #endif
 
   integer :: g_nprocs = 1
@@ -237,7 +239,7 @@ contains
     nullify(self%r64)
   end subroutine data_release
     
-#ifndef EP_MPI
+#ifndef ENABLE_MPI
   subroutine clone_base_init(myid, nprocs)
     ! no MPI, so no work
     implicit none
@@ -263,7 +265,7 @@ contains
   subroutine clone_exit()
     implicit none
     integer :: i
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
     ! close the MPI communication
     call MPI_FINALIZE(i)
 #endif
@@ -278,7 +280,7 @@ contains
 
   subroutine clone_barrier()
     implicit none
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
     integer :: ierror
     call MPI_Barrier(myComm, ierror)
 #endif
@@ -457,7 +459,7 @@ contains
          ! no changes required
          return
       end if
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
 
       ! convenience scalar
       n_external = numcell_clone - numcell
@@ -739,7 +741,7 @@ contains
       deallocate(clone_map)
       deallocate(proc_map)
 
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
       
       ! Now Ask other processors what to send
       ! and let them know what we expect to receive
@@ -820,7 +822,7 @@ contains
   subroutine clone_get_i32_1(myValue)
     implicit none
     integer, target, intent(inout) :: myValue(:)
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
     integer :: iNode, iProc, ierror
     type(data_t), pointer :: my_data(:,:)
     
@@ -857,7 +859,7 @@ contains
     use iso_fortran_env, only: INT64
     implicit none
     integer(INT64), target, intent(inout) :: myValue(:)
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
     integer :: iNode, iProc, ierror
     type(data_t), pointer :: my_data(:,:)
 
@@ -894,7 +896,7 @@ contains
     use iso_fortran_env, only: REAL64
     implicit none
     real(real64), target, intent(inout) :: myValue(:)
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
     integer :: iNode, iProc, ierror, nSend, nRecv
     type(data_t), pointer :: my_data(:,:)
 

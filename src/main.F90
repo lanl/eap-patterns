@@ -52,7 +52,7 @@ program test
   ! Get the filename
   call GET_COMMAND_ARGUMENT(1, fname)
 
-#ifdef EP_MPI
+#ifdef ENABLE_MPI
   call fm%init_from_PIO(trim(fname))
   myid = clone_myid()
   nprocs = clone_nprocs()

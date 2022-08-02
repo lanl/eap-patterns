@@ -2,7 +2,7 @@
 # CMakeLists.txt for EAP Patterns
 ######################################
 cmake_minimum_required(VERSION 3.16.0)
-project(mygrad LANGUAGES Fortran CXX)
+project(mygrad LANGUAGES Fortran CXX C)
 
 option(EP_PIO "Build targets with PIO integration;" "ON")
 option(EP_MPI "Build targets with MPI integration;" "ON")
@@ -52,6 +52,12 @@ endif ()
 # set(CMAKE_Fortran_FLAGS ${CMAKE_Fortran_FLAGS} " -fsanitize=address -DEP_PIO ")
 
 if ( EP_PIO )
+  set(C_HEADERS ${C_HEADERS}
+    dependency/piotools/pioParallelUtils.h
+    )
+  set(C_SOURCES ${C_SOURCES}
+    dependency/piotools/pioParallelUtils.c
+    )
   set(CXX_SOURCES ${CXX_SOURCES}
     dependency/piotools/pioInterface.cpp
     )
@@ -59,14 +65,15 @@ if ( EP_PIO )
     dependency/piotools/pioInterface.hpp
     dependency/piotools/pio.hpp
     )
-  set(CXX_SOURCES ${CXX_SOURCES}
+  set(F90_SOURCES ${F90_SOURCES}
     dependency/piotools/pio_interface.F90
     )
+  
   set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -DEP_PIO=1 ")
   
 endif ()
 
-add_executable(mygrad ${F90_SOURCES} ${CXX_SOURCES} ${CXX_HEADERS})
+add_executable(mygrad ${F90_SOURCES} ${CXX_SOURCES} ${C_SOURCES} ${CXX_HEADERS} ${C_HEADERS})
 set_property(TARGET mygrad PROPERTY LINKER_LANGUAGE Fortran)
 
 
@@ -85,5 +92,9 @@ if ( EP_MPI )
       LINK_FLAGS "${MPI_Fortran_LINK_FLAGS}")
   endif()
 
-  set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -DEP_MPI=1 ")
+
+  # PIO mpi flag
+  set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -DENABLE_MPI=1 ")
+  set(CMAKE_CXX_FLAGS " ${CMAKE_CXX_FLAGS} -DENABLE_MPI=1 ")
+  set(CMAKE_C_FLAGS " ${CMAKE_C_FLAGS} -DENABLE_MPI=1 ")
 endif()

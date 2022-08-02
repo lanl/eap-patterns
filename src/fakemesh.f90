@@ -105,7 +105,7 @@ contains
     call clone_get(array)
   end subroutine read_and_clone_i32
   
-  subroutine init_PIO_frac_core(self)
+  subroutine init_PIO_frac_core(self, iStart, nCount)
     ! Initialize the frac_core values from file
     use pio_interface
     use define_kind, only: INT64
@@ -127,7 +127,9 @@ contains
          nCount = cells%cell_address(mpiid + 1) - iStart
          !loCell =>  pio_get_range_i64(self%id, "cell_index", 2 * idim - 1, iStart, nCount)
 
-         
+         ! Get the material counts
+         frac_core%vol%obj = pio_get_range_matvar(self%ID, "chunk_vol", iStart, nCount) 
+
          
     END ASSOCIATE
       
@@ -410,7 +412,7 @@ contains
   subroutine init_from_PIO(self, piofile, mpinprocs, mpiid)
     ! Initializes a mesh from a PIO file
     use iso_fortran_env, only: INT64, REAL64
-    use clone_lib_module, only: clone_get, clone_base_init, clone_init, clone_barrier
+    use clone_lib_module, only: mycomm, clone_get, clone_base_init, clone_init, clone_barrier
     use pio_interface
     implicit none
 
@@ -452,7 +454,7 @@ contains
       if (myid == 0) write(*,*) 'reading PIO: ', piofile
 
       !*-- initialize a bare "parallel" PIO struct
-      call pio_init_par(pioid, piofile, nprocs, myid, 0, 1)
+      call pio_init_par(pioid, piofile, 0, 1, mycomm)
       
       !*-- Read in the total number of cells and dimensions
       nCell = pio_ncell(pioid)
@@ -468,6 +470,8 @@ contains
       m%cells%cell_address => &
            gen_partition(PIOID, ndim, nCell, nprocs, myID, iStart, nCount)
 
+      call pio_init_materials(pioid, iStart, nCount)
+      
       !*-- Allocate mesh scalars 
       m%cells%numcell = nCount
       m%cells%numcell_clone = nCount
@@ -533,11 +537,14 @@ contains
          m%cells%cell_half_lo(:, iDim) = m%cells%vcell/2.0_REAL64
          m%cells%cell_half_hi(:, iDim) = m%cells%vcell/2.0_REAL64
       end do
+
+      !*-- update the mesh state variables
+      call self%init_PIO_frac_core(iStart, nCount)
       
-      call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done reading data, initializing faces'
       call self%init_PIO_faces(iStart, nCount, nbrs)
       deallocate(nbrs)
+
       call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done initializing faces'
     END ASSOCIATE

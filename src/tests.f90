@@ -154,7 +154,7 @@ contains
     if (myid == 0) then
        write(*,*) 'type   real_faces pe_boundary_faces'
        do iType = 1, 5
-          write(*,'(I4,2(I12," "))') iType, global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), &
+          write(*,'(I4, " ", 2(I12, " "))') iType, global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), &
                global_faces_on_pe_boundary(iType)
        end do
     end if
