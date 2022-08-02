@@ -128,7 +128,7 @@ contains
          !loCell =>  pio_get_range_i64(self%id, "cell_index", 2 * idim - 1, iStart, nCount)
 
          ! Get the material counts
-         frac_core%vol%obj = pio_get_range_matvar(self%ID, "chunk_vol", iStart, nCount) 
+         frac_core%vol%obj = pio_get_range_matvar(self%ID, "chunk_vol", 0, nCount) 
 
          
     END ASSOCIATE
