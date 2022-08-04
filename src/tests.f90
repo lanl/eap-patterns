@@ -1,7 +1,7 @@
 module tests
   ! Tests of cell based loops
   use iso_fortran_env, only: INT64, REAL64
-  use clone_lib_module, only: clone_barrier, clone_reduce, CLONE_SUM
+  use clone_lib_module, only: clone_barrier, clone_reduce, CLONE_SUM, CLONE_MAX, clone_myid
   use pio_interface, only: pio_now
   public
   integer, private :: myid
@@ -18,6 +18,7 @@ contains
     if (myid == 0 ) write(*,'(/,"-------BEGIN TESTS----------",/)')
     call topcell_sum(m, n_iter)
     call faces_sum(m, n_iter)
+    call faces_scatter(m, n_iter)
     if (myid == 0 ) write(*,'(/,"--------END TESTS-----------",/)')
   end subroutine test_driver
 
@@ -26,12 +27,14 @@ contains
     implicit none
     character(len=*), intent(in) :: the_name
     logical, intent(in) :: the_status
-    real(REAL64) :: the_dt
+    real(REAL64) :: the_dt, max_dt
+
+    call clone_reduce(max_dt, the_dt, CLONE_MAX)
     if (clone_myid() == 0) then
        if (the_status) then
-          write(*,*) '    PASS: ', the_dt, trim(the_name)
+          write(*,*) '    PASS: ', max_dt, trim(the_name)
        else
-          write(*,*) '  **FAIL: ', the_dt, trim(the_name)
+          write(*,*) '  **FAIL: ', max_dt, trim(the_name)
        end if
     end if
   end subroutine printit
@@ -160,5 +163,129 @@ contains
     end if
     call printit("faces_sum", .true., my_dt)
   end subroutine faces_sum
+
+  subroutine faces_scatter(m, n_iter)
+    use define_kind, only: HI_SIDE, LO_SIDE
+    use iso_fortran_env, only: REAL64, INT64
+    use mesh_types, only: mesh_t
+    implicit none
+
+    type(mesh_t), intent(in) :: m
+    
+    real(REAL64), allocatable :: values(:)
+    integer, intent(in) :: n_iter
+
+    integer :: i, iTop, iCell, iFace, iDim, iLoop, iType, n, nlo, nhi, ilo, ihi, iIter
+    real(REAL64) :: my_dt, my_sum, expected_result, my_T_sum, all_sum, all_expected
+    integer, allocatable :: mothers(:)
+    
+
+    ! Initialize arrays
+    allocate(values(m%cells%numcell_clone))
+    values = 0.0d0
+
+    call clone_barrier()
+    my_dt = pio_now()
+    if (m%sim%numdim == 2) then
+       my_T_sum = 0.5
+    else if (m%sim%numdim == 3) then
+       my_T_sum = 0.25
+    else
+       my_T_sum = 1.0
+    end if
+    if (clone_myid() == 3) then
+       do n = 1,8
+          idim = 3
+          write(*,*) clone_myid(), m%faces%face_local(n, LO_SIDE, idim), m%faces%face_local(n, HI_SIDE, idim)
+       end do
+    end if
+    do iIter = 1, n_iter
+       do iDim = 1, m%sim%numdim
+          ! for each dimension
+          do iLoop = 1, m%faces%face_num(iDim)
+             ! for each face type in that dimension
+             iType = m%faces%face_id(iLoop, iDim)
+             nlo = m%faces%face_lo(iLoop, iDim)
+             nhi = m%faces%face_hi(iLoop, iDim)
+             do n = nlo, nhi
+                ilo = m%faces%face_local(n, LO_SIDE, idim)
+                ihi = m%faces%face_local(n, HI_SIDE, idim)
+                if (iType <= 2 ) then
+                   ! Types 1, & 2 have same cell on both sides
+                   if (ilo <= m%cells%numcell .and. ilo > 0) then
+                      values(ilo) = values(ilo) + 1.0D0
+                   else
+                      write(*,*) clone_myid(), ': ilo killer:', n, iType, iDim, ihi, ilo
+                   end if
+                else if ( iType == 3 ) then
+                   if (ilo <= m%cells%numcell) then
+                      values(ilo) = values(ilo) + 1.0D0
+                   end if
+                   if (ihi <= m%cells%numcell) then
+                      values(ihi) = values(ihi) + 1.0D0
+                   end if
+                else if ( iType == 4 ) then
+                   if (ilo <= m%cells%numcell) then
+                      values(ilo) = values(ilo) + 1.0D0
+                   end if
+                   if (ihi <= m%cells%numcell) then
+                      values(ihi) = values(ihi) + my_T_sum
+                   end if
+                else if ( iType == 5 ) then
+                   if (ilo <= m%cells%numcell) then
+                      values(ilo) = values(ilo) + my_T_sum
+                   end if
+                   if (ihi <= m%cells%numcell) then
+                      values(ihi) = values(ihi) + 1.0D0
+                   end if
+                end if
+             end do
+          end do
+       end do
+    end do
+    call clone_barrier()
+    my_dt = pio_now() - my_dt
+
+    ! Check results for leaf cells
+    allocate(mothers(m%cells%numcell_clone))
+    mothers = 1.0
+    my_sum = 0.0D0
+    expected_result = real(n_iter * 2 * m%sim%numdim, REAL64) * m%levels%numtop
+    do i = 1, m%levels%numtop
+       iCell = m%levels%ltop(i)
+       mothers(icell) = 0.0
+       my_sum = my_sum + values(iCell)
+       ! reset values(i) to known bad value
+    end do
+
+    call clone_reduce(all_sum, my_sum, CLONE_SUM)
+    call clone_reduce(all_expected, expected_result, CLONE_SUM)
+    write(*,*) clone_myid(), "daughters", my_sum, expected_result, my_sum - expected_result
+    call flush()
+    call clone_barrier()
+    if (clone_myid() == 0) then
+       write(*,*) clone_myid(), "daughters total", all_sum, all_expected, all_sum - all_expected
+    end if
+    call printit("face_scatter daughters", (all_sum ==  all_expected), my_dt)
+
+    ! check results for mother cells
+    my_sum = 0.0
+    do iCell = 1, m%cells%numcell
+       if ( mothers(iCell) < 0.5 ) then
+          my_sum = my_sum + values(iCell)
+       end if
+    end do
+    expected_result = 0.0D0
+    call clone_reduce(all_sum, my_sum, CLONE_SUM)
+    call clone_reduce(all_expected, expected_result, CLONE_SUM)
+    write(*,*) clone_myid(), "mothers", my_sum, expected_result, my_sum - expected_result
+    call flush()
+    call clone_barrier()
+    if (clone_myid() == 0) then
+       write(*,*) clone_myid(), "mothers total", all_sum, all_expected, all_sum - all_expected
+    end if
+    call printit("face_scatter mothers", (all_sum ==  all_expected), my_dt)
+    deallocate(values)
+  end subroutine faces_scatter
 end module tests
     

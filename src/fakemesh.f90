@@ -243,6 +243,11 @@ contains
     integer, dimension(:), pointer :: cell_level  
     integer :: idMap(5,3)  ! Maps real ID to face_id array
     integer, parameter :: offsets(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
+    integer(c_int64_t), pointer, dimension(:) :: daughter
+    integer :: iCheck
+
+
+    call read_and_clone(daughter, "cell_daughter", self%id, iStart, nCount)
 
     ! Two pass face creation - one pass for counting and one for creating
 
@@ -273,7 +278,6 @@ contains
                nFaces(iType, idim) = nFaces(iType, idim) + n_shift
             end if
                
-            
             id_hi = nbrs(iCell, 2 * idim)
             iType = get_face_type(iCell, id_hi, HI_SIDE)
             if (id_hi == iCell) then
@@ -337,8 +341,17 @@ contains
          faceIndex = 0
          LOOP_CELL: do iTop = 1, m%levels%numtop
             iCell = m%levels%ltop(iTop)
+            iCheck = iCell
+            if (daughter(iCheck) > 0) then
+               write(*,*) clone_myid(), 'ERROR 1: ', iCheck, daughter(iCheck), m%cells%numcell
+            end if
             
             id_lo = nbrs(iCell, 2 * idim - 1)
+            iCheck = id_lo
+            if (daughter(iCheck) > 0) then
+               write(*,*) clone_myid(), 'ERROR 2: ', iCheck, daughter(iCheck), m%cells%numcell
+            end if
+
             iType = get_face_type(iCell, id_lo, LO_SIDE)
             iIndex = idMap(iType, iDim)
             iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
@@ -349,9 +362,18 @@ contains
             if (iType == 4) then
                ! Add in n_shift more faces
                do jTmp = 1, n_shift
-                  faces%face_local(iFace, LO_SIDE, idim) = id_lo + offsets(jTmp, idim)
+                  if (id_lo > m%cells%numcell) then
+                     faces%face_local(iFace, LO_SIDE, idim) = id_lo + jTmp
+                  else
+                     faces%face_local(iFace, LO_SIDE, idim) = id_lo + offsets(jTmp, idim)
+                  end if
                   faces%face_local(iFace, HI_SIDE, idim) = iCell
                   faceIndex(iIndex) = faceIndex(iIndex) + 1
+                  iCheck = faces%face_local(iFace, LO_SIDE, idim)
+                  if (daughter(iCheck) > 0) then
+                     write(*,*) clone_myid(), 'ERROR 3: ', iCheck, daughter(iCheck), m%cells%numcell
+                  end if
+
                end do
             end if
 
@@ -369,8 +391,16 @@ contains
                   ! Add in n_shift more faces
                   do jTmp = 1, n_shift
                      faces%face_local(iFace, LO_SIDE, idim) = iCell
-                     faces%face_local(iFace, HI_SIDE, idim) = id_hi + offsets(jTmp, idim)
+                     if (id_lo > m%cells%numcell) then
+                        faces%face_local(iFace, HI_SIDE, idim) = id_hi + jTmp
+                     else
+                        faces%face_local(iFace, HI_SIDE, idim) = id_hi + offsets(jTmp, idim)
+                     end if
                      faceIndex(iIndex) = faceIndex(iIndex) + 1
+                     iCheck = faces%face_local(iFace, HI_SIDE, idim)
+                     if (daughter(iCheck) > 0) then
+                        write(*,*) clone_myid(), 'ERROR 4: ', iCheck, daughter(iCheck), m%cells%numcell
+                     end if
                   end do
                end if
             end if

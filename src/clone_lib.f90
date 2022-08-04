@@ -301,7 +301,7 @@ contains
     integer(c_int64_t), intent(in) :: iStart, iEnd
     integer(INT64), intent(inout) :: nbrs(:,:)
     integer(INT64), allocatable, intent(inout) :: clone_map(:)
-    integer(c_int64_t) :: id_nbr, iClone
+    integer(c_int64_t) :: id_nbr, iClone, id_new
     integer :: iCell, nClones, iDim, iTmp
     logical :: found
 
@@ -329,6 +329,12 @@ contains
     if (allocated(clone_map)) deallocate(clone_map)
     allocate(clone_map(nClones))
 
+    ! THis look converts nbrs array from absolute cell
+    ! number to local IDS running from 1 -> numcell_clone
+    !
+    ! The clone_map array will map IDs numcell+1 -> numcell_clone
+    ! to global cell IDs
+    !
     iClone = 0
     do iDim=1,m%sim%numdim
        do iTmp=1,m%levels%numtop
@@ -339,8 +345,8 @@ contains
           id_nbr = nbrs(iCell, 2 * iDim - 1)
           if (id_nbr < iStart .or. id_nbr > iEnd) then
              ! Off processor
-             call update_clone_id(id_nbr, iClone, clone_map)
-             nbrs(iCell, 2 * iDim - 1) = id_nbr + m%cells%numcell
+             call generate_clone_id(id_new, id_nbr, iClone, clone_map)
+             nbrs(iCell, 2 * iDim - 1) = id_new + m%cells%numcell
           else
              ! On processor
              nbrs(iCell, 2 * iDim - 1) = id_nbr - iStart + 1
@@ -350,8 +356,8 @@ contains
           id_nbr = nbrs(iCell, 2 * iDim)
           if (id_nbr < iStart .or. id_nbr > iEnd) then
              ! Off processor
-             call update_clone_id(id_nbr, iClone, clone_map)
-             nbrs(iCell, 2 * iDim ) = id_nbr + m%cells%numcell
+             call generate_clone_id(id_new, id_nbr, iClone, clone_map)
+             nbrs(iCell, 2 * iDim ) = id_new + m%cells%numcell
           else
              ! On processor
              nbrs(iCell, 2 * iDim) = id_nbr - iStart + 1
@@ -369,18 +375,18 @@ contains
     end do
 
   contains
-    subroutine update_clone_id(the_ID, the_count, the_clone_map)
-      ! Checks through the clone map to see if the_ID exists already.
+    pure subroutine generate_clone_id(new_clone_id, old_clone_id, the_count, the_clone_map)
+      ! Checks through the clone map to see if old_clone_id exists already.
       ! If not, adds it to the_clone_map, increments the_count
       use iso_fortran_env, only: INT64
       implicit none
 
-      integer(INT64), intent(inout) :: the_ID
+      integer(INT64), intent(out)   :: new_clone_id
+      integer(INT64), intent(inout) :: old_clone_id
       integer(INT64), intent(inout) :: the_count
       integer(INT64), intent(inout) :: the_clone_map(:)
       
       integer :: j
-      integer(INT64) :: new_clone_id
 
       new_clone_id = -1
 
@@ -388,7 +394,7 @@ contains
       ! Must be a smarter way to do this.
       ! This is an n^2 search.  
       do j = the_count, 1, -1
-         if (the_clone_map(j) == the_ID) then
+         if (the_clone_map(j) == old_clone_id) then
             new_clone_id = j
             exit
          end if
@@ -397,13 +403,11 @@ contains
       ! Increment the_count if we need to
       if (new_clone_id < 0) then
          the_count = the_count + 1
-         the_clone_map(the_count) = the_ID
+         the_clone_map(the_count) = old_clone_id
          new_clone_id = the_count
       end if
 
-      the_ID = new_clone_id
-
-    end subroutine update_clone_id
+    end subroutine generate_clone_id
     
   end subroutine update_nbrs_and_get_clone_map
 
@@ -438,7 +442,7 @@ contains
          ndim => m%sim%numdim, &
          numcell => m%cells%numcell, &
          numcell_clone => m%cells%numcell_clone, &
-         proc_start => m%cells%cell_address, &
+         partition => m%cells%cell_address, &
          numtop => m%levels%numtop, &
          ltop => m%levels%ltop, &
          allnumtop => m%levels%allnumtop, &
@@ -448,11 +452,22 @@ contains
 
       !*-- Update AMR cell_level and insert clones for coarse cells at high boundaries
 
+      ! At this point our clone cells only contain one of the
+      ! (1/2/4) T-Cell faces in 1/2/3D. We will now add in the
+      ! reamaining faces.
+      !
+      ! For this we need to know the levels of our clone cells
+      
       !* The cell levels will be overridden with final numbers at the end
-      tmp_cell_level => pio_get_range_i64(pioid, "cell_level", 0, proc_start(g_myid),proc_start(g_myid+1)-proc_start(g_myid))
+
+      ! Read in cell level from the PIO file and populate m%levels%cell_level(1:numcell)
+      tmp_cell_level => pio_get_range_i64(pioid, "cell_level", 0, partition(g_myid), &
+           partition(g_myid+1)-partition(g_myid))
       allocate(m%levels%cell_level(numcell_clone))
       m%levels%cell_level(1:numcell) = tmp_cell_level
       call pio_release(tmp_cell_level)
+
+      ! Fill in the clone cell levels
       call clone_get(m%levels%cell_level)
 
       if (ndim < 2 .or. numcell_clone == numcell) then
@@ -463,6 +478,7 @@ contains
 
       ! convenience scalar
       n_external = numcell_clone - numcell
+      
       ! Set node counts to existing values and map clones to nodes
       allocate(node_count(n_nodes))
       allocate(node_map(n_external)) 
@@ -496,7 +512,7 @@ contains
                iProc = node_map(iNbr)
                node_count(iNode) = node_count(iNode) + n_shift ! new count of cells on processor
                n_additional = n_additional + n_shift           ! Number of new clones
-               iBase = clone_map(iNbr) - proc_start(iProc)
+               iBase = clone_map(iNbr) - partition(iProc) + 1
                sister_clones(1:n_shift, iNbr) = iBase + offsets(1:n_shift, iDim)
                ! Clones higher than iNbr have to be shifted
                new_index(iNbr + 1 : n_external) = new_index(iNbr + 1 : n_external) + n_shift
@@ -509,7 +525,7 @@ contains
                iProc = node_map(iNbr + numcell)
                node_count(iNode) = node_count(iNode) + n_shift ! new count of cells on processor
                n_additional = n_additional + n_shift           ! Number of new clones
-               iBase = clone_map(iNbr) - proc_start(iProc)
+               iBase = clone_map(iNbr) - partition(iProc) + 1
                sister_clones(1:n_shift, iNbr) = iBase + offsets(1:n_shift, iDim)
                ! Clones higher than iNbr have to be shifted
                new_index(iNbr + 1 : n_external) = new_index(iNbr + 1 : n_external) + n_shift 
@@ -548,7 +564,7 @@ contains
          if (node_count(iNode) == nodes(iNode)%nRecv) cycle
 
          ! compute new remote IDs with clones inserted as required
-         ! Communicate as required
+         ! for type 4 and type 5 faces and communicate
          call new_remote_id(iNode)%alloc(node_count(iNode), DATA_I)
          allocate(new_recv_map(node_count(iNode)))
          iLast = 1
@@ -556,7 +572,7 @@ contains
             old_id = nodes(iNode)%recv_map(iTmp)
             iClone = old_id - numcell
             new_recv_map(iLast) = new_index(iClone)
-            new_remote_id(iNode)%i(iLast) = clone_map(iClone) - proc_start(iProc)
+            new_remote_id(iNode)%i(iLast) = clone_map(iClone) - partition(iProc) + 1
             iLast = iLast + 1
             if (sister_clones(1, iClone) > 0) then
                do jTmp = 1, n_shift
@@ -597,14 +613,13 @@ contains
 
       ! Update mesh data structures
       numcell_clone = numcell_clone + n_additional
-      allnumtop = numtop + n_additional
+      allnumtop = allnumtop + n_additional
       deallocate(m%levels%alltop)
       allocate(m%levels%alltop(allnumtop))
       m%levels%alltop(1:numtop) = m%levels%ltop(1:numtop)
       do iTmp = 1, (allnumtop-numtop)
          m%levels%alltop(iTmp) = numcell + iTmp
       end do
-
 
       ! Now need to update the neighbors array.
       do iTmp = 1, numtop
@@ -625,6 +640,7 @@ contains
 
       !*-- Resize AMR cell_level with new ghosts and update clones
       old_cell_level => m%levels%cell_level
+      nullify(m%levels%cell_level)
       allocate(m%levels%cell_level(numcell_clone))
       m%levels%cell_level(1:numcell) = old_cell_level(1:numcell)
       deallocate(old_cell_level)
@@ -640,6 +656,19 @@ contains
       end do
       deallocate(new_remote_id)
       deallocate(node_count)
+
+      ! BLOCK
+      !   ! Quick check
+      !   use iso_fortran_env, only: INT64
+      !   integer(INT64), pointer, dimension(:) :: daughter
+      !   daughter => pio_get_range_i64(1, "cell_daughter", 0, &
+      !        partition(clone_myid()), partition(clone_myid()+1) - partition(clone_myid()))
+      !   do iNode = 1, n_nodes
+      !      if (any(daughter(nodes(iNode)%send_id) > 0)) then
+      !         write(*,*) 'ERROR ON SEND from ',clone_myid(), nodes(iNode)%rank
+      !      end if
+      !   end do
+      ! END BLOCK
 
 #endif
     END ASSOCIATE
@@ -660,7 +689,7 @@ contains
     integer(INT64) :: id_lo, id_hi, iCell, iStart, iEnd
     
     integer(INT64), allocatable :: clone_map(:)
-    integer, allocatable :: proc_map(:), tmp_recv(:)
+    integer, allocatable :: proc_map(:), tmp(:)
     type(data_t), allocatable :: tmp_id_recv(:)
     
     ASSOCIATE(                                   &
@@ -680,27 +709,29 @@ contains
       ! to absolute cell number
       call update_nbrs_and_get_clone_map(m, iStart, iEnd, nbrs, clone_map)
 
+      ! Next two loops loop over remote cells, so we don't have to
+      ! check if they are on-processor
+
       ! Count clones by proc
-      allocate(tmp_recv(0:nprocs))
+      allocate(tmp(0:nprocs))
       n_nodes = 0
-      tmp_recv = -1
+      tmp = -1
       do iTmp = 1, numcell_clone - numcell
          iCell = clone_map(iTmp)
          iProc = get_proc_id(iCell, nprocs, partition)
          if ( iProc /= g_myid) then
-            if (tmp_recv(iProc) < 0) then
-               ! only check tmp_recv because recv and send procs
-               ! are same due to not dealing with T cells at boundaries
+            if (tmp(iProc) < 0) then
+               ! only check tmp because recv and send procs
                n_nodes = n_nodes + 1
-               tmp_recv(iProc) = 0
+               tmp(iProc) = 0
             end if
-            tmp_recv(iProc) = tmp_recv(iProc) + 1
+            tmp(iProc) = tmp(iProc) + 1
          end if
       end do
 
       ! Generate the Node structure
       ! Replaces tmp with a mapping to node
-      ! Restarts tmp_recv counting
+      ! Restarts tmp counting
       allocate(proc_map(0:nprocs-1), stat=ierror)
       if (ierror /= 0) write(*,*) 'error allocating proc_map'
       allocate(nodes(n_nodes), stat=ierror)
@@ -710,32 +741,40 @@ contains
       proc_map = -1
       iNow = 0
       do iTmp = numcell + 1, numcell_clone
-         iCell = clone_map(iTmp-numcell)
-         iProc = get_proc_id(iCell, nprocs, partition)
+         iCell = clone_map(iTmp-numcell)               ! Global cell ID of clone
+         iProc = get_proc_id(iCell, nprocs, partition) ! Remote processor ID of clone
          if (proc_map(iProc) < 0) then
             ! First neighbor for given processor:
-            ! initialize node structure and repurpose tmp_recv(iProc)
+            ! initialize node structure and repurpose tmp(iProc)
             iNow = iNow + 1
             proc_map(iProc) = iNow
             nodes(iNow)%rank = iProc
             nodes(iNow)%status = IDLE
-            nodes(iNow)%nRecv = tmp_recv(iProc)
+            nodes(iNow)%nRecv = tmp(iProc)
+            ! Allocate space for mapping data received
             allocate(nodes(iNow)%recv_map(nodes(iNow)%nrecv))
+
+            ! Allocate space for remote IDs of cells we expect to
+            ! receive that we will send to the remote processor
             call tmp_id_recv(iNow)%alloc(nodes(iNow)%nrecv, DATA_I)
             tmp_id_recv(iNow)%i = -100
-            tmp_recv(iProc) = 0
+
+            ! Repurpose tmp(iProc) to hold index in the map above
+            ! as we fill it.
+            tmp(iProc) = 0
          end if
+
+         ! Insert the local ID of iCell on the remote processor
+         ! into the node map and increment the index (tmp)
          iNode = proc_map(iProc)
-         tmp_recv(iProc) = tmp_recv(iProc) + 1
-         index = tmp_recv(iProc)
+         tmp(iProc) = tmp(iProc) + 1
+         index = tmp(iProc)
          tmp_id_recv(iNode)%i(index) = iCell - partition(iProc) + 1
          nodes(iNode)%recv_map(index) = iTmp
       end do
       if (iNow /= n_nodes) then
          write(*,*) g_myid, '__UNEQUAL NNODES__:    ',iNow, n_nodes
       end if
-
-
       
       ! Deallocate temporary memory
       deallocate(clone_map)
@@ -745,15 +784,17 @@ contains
       
       ! Now Ask other processors what to send
       ! and let them know what we expect to receive
-      ! repurpose tmp_recv as a MPI request
+      ! repurpose tmp as a MPI request
       do iNode = 1, n_nodes
          iProc = nodes(iNode)%rank
          ! post receive for how many we need to send
          call mpi_irecv(nodes(iNode)%nSend, 1, MPI_INTEGER, &
              nodes(iNode)%rank, 1, myComm, nodes(iNode)%request_recv, ierror)
-         ! post send for how many we expect to receive
+         
+         ! post how many we expect to receive using tmp array to hold request id
          call mpi_isend(nodes(iNode)%nRecv, 1, MPI_INTEGER, &
-              nodes(iNode)%rank, 1, myComm, tmp_recv(iNode), ierror)
+              nodes(iNode)%rank, 1, myComm, tmp(iNode), ierror)
+         
          ! post IDs of cells we expect to receive
          call mpi_isend(tmp_id_recv(iNode)%i, nodes(iNode)%nRecv, MPI_INTEGER, &
              nodes(iNode)%rank, 3, myComm, nodes(iNode)%request_send, ierror)
@@ -762,6 +803,8 @@ contains
       ! Wait for communications to end and collect up what we need to send
       do iNode=1, n_nodes
          iProc = nodes(iNode)%rank
+         
+         ! Wait for nSend request to finish
          call mpi_wait(nodes(iNode)%request_recv, MPI_STATUS_IGNORE, ierror)
          
          ! Allocate space and post receive for IDS
@@ -771,13 +814,18 @@ contains
       end do
 
       ! Wait for all communications to finish
-      call mpi_waitall(n_nodes, tmp_recv(1:n_nodes), MPI_STATUSES_IGNORE, ierror)
+      ! Sends of number we expect to receive
+      call mpi_waitall(n_nodes, tmp(1:n_nodes), MPI_STATUSES_IGNORE, ierror)
+
+      ! Reception of IDs we need to send
       call mpi_waitall(n_nodes, nodes(:)%request_recv, MPI_STATUSES_IGNORE, ierror)
+
+      ! Completion of send of IDs requested from remote
       call mpi_waitall(n_nodes, nodes(:)%request_send, MPI_STATUSES_IGNORE, ierror)
 #endif
 
       ! Deallocate temporary data structures
-      if ( allocated(tmp_recv) ) deallocate(tmp_recv)
+      if ( allocated(tmp) ) deallocate(tmp)
       do iProc=1,n_nodes
          call tmp_id_recv(iProc)%release()
       end do

@@ -62,7 +62,7 @@ program test
   call fm%init_from_PIO(trim(fname), nprocs, myid)
 #endif
   
-    n_iter = 5
+    n_iter = 1
     call test_driver(fm%m, n_iter)
     
     if (myid == 0) write(*,*) 'releasing'
