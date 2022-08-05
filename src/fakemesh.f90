@@ -247,6 +247,7 @@ contains
     integer :: iCheck
 
 
+    allocate(daughter(nCount))
     call read_and_clone(daughter, "cell_daughter", self%id, iStart, nCount)
 
     ! Two pass face creation - one pass for counting and one for creating
@@ -524,6 +525,7 @@ contains
 
       !*-- Count number of top level cells
       !** daughter => pio_daughter(self%id)
+      allocate(daughter(nCount))
       daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
       m%levels%numtop = 0
       m%levels%allnumtop = 0
