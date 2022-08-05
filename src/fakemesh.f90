@@ -3,6 +3,7 @@
 module fakemesh
   use mesh_types, only: mesh_t
   use mesh_state_types, only: mesh_state_frac_core_t
+  use clone_lib_module, only: clone_myid
   implicit none
   public
   public fakemesh_t
@@ -163,11 +164,7 @@ contains
     
     allocate(m%cells%numcell, m%cells%sum_numcell, m%cells%max_numcell)
     allocate(m%cells%numcell_clone, m%cells%mxcell)
-
-    
-    ASSOCIATE(levels => m%levels)
-      allocate(levels%numtop, levels%allnumtop)
-    END ASSOCIATE
+    allocate(m%levels%numtop, m%levels%allnumtop)
 
   end subroutine allocate_mesh_scalars
 
@@ -234,7 +231,6 @@ contains
     class(fakemesh_t) :: self
     integer(c_int64_t), intent(in) :: iStart, nCount
     integer(c_int64_t), intent(in), dimension(:,:) :: nbrs
-    integer(c_int64_t) :: iEnd
     integer(kind=c_int64_t) :: nFace(5), nFaces(5,3)
     integer :: ndim, idim, ilvl, nFaceTypes, iTmp, iIndex, n_shift, jTmp
     integer(c_int64_t) :: iCell, id_lo,id_hi, iFace, offset_now, maxFaces, iTop, iType
@@ -247,13 +243,11 @@ contains
     integer :: iCheck
 
 
-    allocate(daughter(nCount))
-    call read_and_clone(daughter, "cell_daughter", self%id, iStart, nCount)
+    daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
 
     ! Two pass face creation - one pass for counting and one for creating
 
     ASSOCIATE(m => self%m, faces => self%m%faces)
-      iEnd = iStart + nCount - 1
       ndim = m%sim%numdim
 
       if (iDim > 1 ) then
@@ -408,26 +402,29 @@ contains
          end do LOOP_CELL
       end do LOOP_DIM
 
+      call pio_release(daughter)
+
     END ASSOCIATE
   contains
-    integer function get_face_type(the_cell, the_id, the_side)
+    integer function get_face_type(the_cell, the_nbr, the_side)
       use iso_fortran_env, only: INT64
       implicit none
-      integer(INT64), intent(in) :: the_cell, the_id
+      integer(INT64), intent(in) :: the_cell, the_nbr
       integer, intent(in) :: the_side
-      if ( the_id == the_cell ) then
+      
+      if ( the_nbr == the_cell ) then
          if (the_side == LO_SIDE) then
             get_face_type = 1
          else
             get_face_type = 2
          end if
-      else if ( cell_level(the_id) < cell_level(the_cell) ) then
+      else if ( cell_level(the_nbr) < cell_level(the_cell) ) then
          if (the_side == LO_SIDE) then
             get_face_type = 5
          else
             get_face_type = 4
          end if
-      else if ( cell_level(the_id) > cell_level(the_cell) ) then
+      else if ( cell_level(the_nbr) > cell_level(the_cell) ) then
          if (the_side == LO_SIDE) then
             get_face_type = 4
          else
@@ -452,13 +449,16 @@ contains
     integer, intent(in), optional :: mpinprocs
     integer, intent(in), optional :: mpiid
     integer(c_int64_t), pointer, dimension(:) :: daughter
-    integer(c_int64_t) :: i, j, iStart, nCount, myProcs, nCell, iCell
+    integer(c_int64_t), pointer, dimension(:) :: mylevel
+    integer(c_int64_t) :: i, j, iStart, nCount, myProcs, nCell, iCell, iNbr
     integer :: nprocs, myid, ndim, iTmp, iDim
     real(c_double), pointer, dimension(:) :: tmp_d
     integer(c_int64_t), dimension(:), pointer :: lo_cell, hi_cell
     integer(c_int64_t), dimension(:), pointer :: amhc_i
     real(c_double), pointer, dimension(:,:) :: cell_hi_lo
     integer(INT64), allocatable, dimension(:,:) :: nbrs
+    integer(INT64), parameter :: offset_n(3) = (/1,2,4/)
+    integer(c_int64_t) :: iEnd
 
 
     !*-- Get the MPI numprocs and our processor ID
@@ -501,13 +501,15 @@ contains
       m%cells%cell_address => &
            gen_partition(PIOID, ndim, nCell, nprocs, myID, iStart, nCount)
 
-      call pio_init_materials(pioid, iStart, nCount)
+      !SS call pio_init_materials(pioid, iStart, nCount)
       
       !*-- Allocate mesh scalars 
       m%cells%numcell = nCount
       m%cells%numcell_clone = nCount
       m%cells%sum_numcell = nCount
       m%cells%max_numcell = nCount
+
+      write(*,*) clone_myid(), 'MY_NCOUNT',iStart, nCount, '-------------------------------------'
 
       !*-- Read in neighbors for face and clone processing
       allocate(nbrs(nCount, 2 * ndim))
@@ -524,17 +526,29 @@ contains
       end do
 
       !*-- Count number of top level cells
-      !** daughter => pio_daughter(self%id)
-      allocate(daughter(nCount))
+      ! Fix neighbors array for refined neighbors
       daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
       m%levels%numtop = 0
       m%levels%allnumtop = 0
+      iEnd = iStart + nCount - 1
       do i =1, m%cells%numcell
          if (daughter(i) <= 0) then 
             m%levels%numtop = m%levels%numtop  + 1
+            do iDim = 1, nDim
+               ! Lo side is finer
+               iNbr = nbrs(i, 2*iDim-1)
+               if (iNbr >= iStart .and. iNbr <= iEnd .and. daughter(iNbr) > 0) then
+                  nbrs(i,2*iDim-1) = daughter(iNbr) + offset_n(iDim)
+               end if
+               
+               ! Hi side is finer
+               iNbr = nbrs(i, 2*iDim)
+               if (iNbr >= iStart .and. iNbr <= iEnd .and. daughter(iNbr) > 0) then
+                  nbrs(i,2*iDim) = daughter(iNbr)
+               end if
+            end do
          end if
       end do
-
         
       !*-- Initialize ltop
       allocate(m%levels%ltop(m%levels%numtop))
@@ -545,6 +559,8 @@ contains
             m%levels%ltop(iTmp) = i
          end if
       end do
+
+      ! Release daughter since no longer needed
       call pio_release(daughter)
       
       !*-- initialize clones
@@ -571,7 +587,7 @@ contains
       end do
 
       !*-- update the mesh state variables
-      call self%init_PIO_frac_core(iStart, nCount)
+      !SS call self%init_PIO_frac_core(iStart, nCount)
       
       if (myid == 0 ) write(*,*) 'Done reading data, initializing faces'
       call self%init_PIO_faces(iStart, nCount, nbrs)
