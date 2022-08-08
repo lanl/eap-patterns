@@ -227,7 +227,7 @@ module mesh_types
       end if
       if (allocated(m%levels)) then
          ! Release levels
-         call pio_release(m%levels%cell_daughter)
+         call release(m%levels%cell_daughter)
          deallocate(m%levels)
       end if
       if (allocated(m%faces)) then

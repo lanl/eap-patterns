@@ -319,10 +319,6 @@ contains
            faces%face_local(maxFaces, 2, ndim) &
            )
 
-      write(*,*) '___________CC:', m%cells%numcell, m%cells%numcell_clone, 'ndim=',ndim, 'nshift=',n_shift
-      do idim=1,3
-         write(*,*) 'Offsets_',idim, offsets_n(:,idim)
-      end do
       ! Populate face meta data
       faces%face_num = 0
       faces%face_local = -1
@@ -338,7 +334,6 @@ contains
                faces%face_lo(iIndex, iDim) = offset_now
                faces%face_hi(iIndex, iDim) = offset_now + nFaces(iType, iDim) - 1
                offset_now = offset_now + nFaces(iType, iDim)
-               write(*,*) 'idim=', iDim, 'itype=', iType, 'n=', faces%face_hi(iIndex, iDim) - faces%face_lo(iIndex, iDim) + 1
             end if
          end do
       end do
@@ -446,7 +441,7 @@ contains
     integer, intent(in), optional :: mpiid
     integer(c_int64_t), pointer, dimension(:) :: daughter
     integer(c_int64_t), pointer, dimension(:) :: mylevel
-    integer(c_int64_t) :: i, j, iStart, nCount, myProcs, nCell, iCell, iNbr
+    integer(c_int64_t) :: i, j, iStart, nCount, myProcs, nCell, iCell, iNbr, myNbr
     integer :: nprocs, myid, ndim, iTmp, iDim
     real(c_double), pointer, dimension(:) :: tmp_d
     integer(c_int64_t), dimension(:), pointer :: lo_cell, hi_cell
@@ -496,6 +491,7 @@ contains
       !*-- Generate the MPI partitioning, and current PE's iStart and nCount
       m%cells%cell_address => &
            gen_partition(PIOID, ndim, nCell, nprocs, myID, iStart, nCount)
+      iEnd = iStart + nCount -1
 
       !SS call pio_init_materials(pioid, iStart, nCount)
       
@@ -507,44 +503,51 @@ contains
 
       !*-- Read in neighbors for face and clone processing
       allocate(nbrs(nCount, 2 * ndim))
+      nbrs = -20
       do idim = 1, ndim
          lo_Cell => pio_get_range_i64(self%id, "cell_index", 2 * idim - 1, iStart, nCount)
-         nbrs(:,2 * idim - 1) = lo_Cell
+         nbrs(1:nCount,2 * idim - 1) = lo_Cell(1:nCount)
          call pio_release(lo_Cell)
          nullify(lo_Cell)
 
          hi_Cell => pio_get_range_i64(self%id, "cell_index", 2 * idim, iStart, nCount)
-         nbrs(:,2 * idim) = hi_Cell
+         nbrs(1:nCount,2 * idim) = hi_Cell(1:nCount)
          call pio_release(hi_Cell)
          nullify(hi_Cell)
       end do
 
+      iEnd = iStart + nCount - 1
       !*-- Count number of top level cells
       ! Fix neighbors array for refined neighbors
       m%levels%cell_daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
       daughter => m%levels%cell_daughter
       m%levels%numtop = 0
       m%levels%allnumtop = 0
-      iEnd = iStart + nCount - 1
       do i =1, m%cells%numcell
          if (daughter(i) <= 0) then 
             m%levels%numtop = m%levels%numtop  + 1
             do iDim = 1, nDim
                ! Check low side for type 4 face
                iNbr = nbrs(i, 2*iDim-1)
-               if (iNbr >= iStart .and. iNbr <= iEnd .and. daughter(iNbr) > 0) then
-                  nbrs(i,2*iDim-1) = daughter(iNbr) + offset_n(iDim)
+               myNbr = iNbr - iStart + 1
+               if (iNbr >= iStart .and. iNbr <= iEnd) then
+                  if (daughter(myNbr) > 0 ) then
+                     nbrs(i,2*iDim-1) = daughter(myNbr) + offset_n(iDim)
+                  end if
                end if
                
                ! Check high side for type 5 face
                iNbr = nbrs(i, 2*iDim)
-               if (iNbr >= iStart .and. iNbr <= iEnd .and. daughter(iNbr) > 0) then
-                  nbrs(i,2*iDim) = daughter(iNbr)
+               myNbr = iNbr - iStart + 1
+               if (iNbr >= iStart .and. iNbr <= iEnd) then
+                  if (daughter(myNbr) > 0) then
+                     nbrs(i,2*iDim) = daughter(myNbr)
+                  end if
                end if
             end do
          end if
       end do
-        
+
       !*-- Initialize ltop
       allocate(m%levels%ltop(m%levels%numtop))
       iTmp = 0

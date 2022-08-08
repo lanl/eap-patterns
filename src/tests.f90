@@ -193,12 +193,6 @@ contains
     else
        my_T_sum = 1.0
     end if
-    if (clone_myid() == 3) then
-       do n = 1,8
-          idim = 3
-          write(*,*) clone_myid(), m%faces%face_local(n, LO_SIDE, idim), m%faces%face_local(n, HI_SIDE, idim)
-       end do
-    end if
     do iIter = 1, n_iter
        do iDim = 1, m%sim%numdim
           ! for each dimension
@@ -260,11 +254,9 @@ contains
 
     call clone_reduce(all_sum, my_sum, CLONE_SUM)
     call clone_reduce(all_expected, expected_result, CLONE_SUM)
-    write(*,*) clone_myid(), "daughters", my_sum, expected_result, my_sum - expected_result
-    call flush()
     call clone_barrier()
     if (clone_myid() == 0) then
-       write(*,*) clone_myid(), "daughters total", all_sum, all_expected, all_sum - all_expected
+       write(*,*) clone_myid(), "daughters:", all_sum, all_expected, all_sum - all_expected
     end if
     call printit("face_scatter daughters", (all_sum ==  all_expected), my_dt)
 
@@ -276,11 +268,9 @@ contains
     expected_result = 0.0D0
     call clone_reduce(all_sum, my_sum, CLONE_SUM)
     call clone_reduce(all_expected, expected_result, CLONE_SUM)
-    write(*,*) clone_myid(), "mothers", my_sum, expected_result, my_sum - expected_result
-    call flush()
     call clone_barrier()
     if (clone_myid() == 0) then
-       write(*,*) clone_myid(), "mothers total", all_sum, all_expected, all_sum - all_expected
+       write(*,*) clone_myid(), "mothers:", all_sum, all_expected, all_sum - all_expected
     end if
     call printit("face_scatter mothers", (all_sum ==  all_expected), my_dt)
     deallocate(values)

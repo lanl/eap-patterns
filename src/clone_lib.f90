@@ -322,7 +322,6 @@ contains
     integer :: iCell, nClones, iDim, iTmp
     logical :: found
 
-
     ! Get an upper bound on number of clones
     nClones = 0
     do iDim=1,m%sim%numdim
@@ -353,6 +352,7 @@ contains
     ! The clone_map array will map local clone IDs (numcell+1 -> numcell_clone)
     ! to global cell IDs primarily for processor identification purposes
     !
+
     iClone = 0
     do iDim=1,m%sim%numdim
        do iTmp=1,m%levels%numtop
@@ -455,6 +455,7 @@ contains
     integer, allocatable :: node_map(:), node_count(:), sister_clones(:,:)
     type(data_t), allocatable :: new_remote_id(:)
     integer, allocatable :: request_send(:), new_recv_map(:), new_send_size(:)
+    integer(INT64), pointer :: daughter(:) => null()
 
     ASSOCIATE( &
          ndim => m%sim%numdim, &
@@ -664,6 +665,14 @@ contains
       deallocate(old_cell_level)
       call clone_get(m%levels%cell_level)
 
+      !*-- Resize daughters to check if any off-processor cells need to be modified
+      daughter => m%levels%cell_daughter
+      nullify(m%levels%cell_daughter)
+      allocate(m%levels%cell_daughter(m%cells%numcell_clone))
+      m%levels%cell_daughter(1:m%cells%numcell) = daughter(1:m%cells%numcell)
+      call pio_release(daughter)
+      call clone_get(m%levels%cell_daughter)
+
       ! Wait for MPI sends to finish
       call mpi_waitall(n_nodes, nodes(:)%request_send, MPI_STATUSES_IGNORE, ierror)
       call mpi_waitall(n_nodes, request_send, MPI_STATUSES_IGNORE, ierror)
@@ -790,7 +799,7 @@ contains
          nodes(iNode)%recv_map(index) = iTmp
       end do
       if (iNow /= n_nodes) then
-         write(*,*) g_myid, '__UNEQUAL NNODES__:    ',iNow, n_nodes
+         write(*,*) g_myid, '__UNEQUAL NNODES__:    ',iNow, n_nodes, proc_map
       end if
       
       ! Deallocate temporary memory
