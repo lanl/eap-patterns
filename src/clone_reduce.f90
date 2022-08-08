@@ -178,7 +178,7 @@ contains
     if (bcast) then
        call mpi_Allreduce(value_in, result_out, 1, MPI_REAL8, my_mpi_Op, myComm, ierror)
     else
-       call mpi_reduce(value_in, result_out, 1, MPI_REAL8, MPI_SUM, 0, myComm, ierror)
+       call mpi_reduce(value_in, result_out, 1, MPI_REAL8, my_mpi_Op, 0, myComm, ierror)
     end if
 #endif
   end procedure clone_reduce_r64_0
