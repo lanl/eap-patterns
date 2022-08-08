@@ -238,6 +238,23 @@ contains
     nullify(self%i64)
     nullify(self%r64)
   end subroutine data_release
+
+  pure integer function get_proc_id(theCell, nprocs, partition)
+    use iso_fortran_env, only: INT64
+    implicit none
+    integer(INT64), intent(in) :: theCell
+    integer, intent(in) :: nprocs
+    integer(INT64), intent(in) :: partition(0:)
+    integer :: i
+
+    get_proc_id = -1
+    do i = 1, nprocs
+       if ( theCell < partition(i) ) then
+          get_proc_id = i - 1
+          exit
+       end if
+    end do
+  end function get_proc_id
     
 #ifndef ENABLE_MPI
   subroutine clone_base_init(myid, nprocs)
@@ -311,6 +328,7 @@ contains
     do iDim=1,m%sim%numdim
        do iTmp=1,m%levels%numtop
           iCell = m%levels%ltop(iTmp)
+          
           ! Low side
           id_nbr = nbrs(iCell, 2 * iDim - 1)
           if (id_nbr < iStart .or. id_nbr > iEnd) then
@@ -329,11 +347,11 @@ contains
     if (allocated(clone_map)) deallocate(clone_map)
     allocate(clone_map(nClones))
 
-    ! THis look converts nbrs array from absolute cell
+    ! This loop converts nbrs array from absolute cell
     ! number to local IDS running from 1 -> numcell_clone
     !
-    ! The clone_map array will map IDs numcell+1 -> numcell_clone
-    ! to global cell IDs
+    ! The clone_map array will map local clone IDs (numcell+1 -> numcell_clone)
+    ! to global cell IDs primarily for processor identification purposes
     !
     iClone = 0
     do iDim=1,m%sim%numdim
@@ -345,7 +363,7 @@ contains
           id_nbr = nbrs(iCell, 2 * iDim - 1)
           if (id_nbr < iStart .or. id_nbr > iEnd) then
              ! Off processor
-             call generate_clone_id(id_new, id_nbr, iClone, clone_map)
+             call generate_clone_id(id_nbr, id_new, iClone, clone_map)
              nbrs(iCell, 2 * iDim - 1) = id_new + m%cells%numcell
           else
              ! On processor
@@ -356,7 +374,7 @@ contains
           id_nbr = nbrs(iCell, 2 * iDim)
           if (id_nbr < iStart .or. id_nbr > iEnd) then
              ! Off processor
-             call generate_clone_id(id_new, id_nbr, iClone, clone_map)
+             call generate_clone_id(id_nbr, id_new, iClone, clone_map)
              nbrs(iCell, 2 * iDim ) = id_new + m%cells%numcell
           else
              ! On processor
@@ -375,14 +393,14 @@ contains
     end do
 
   contains
-    pure subroutine generate_clone_id(new_clone_id, old_clone_id, the_count, the_clone_map)
+    pure subroutine generate_clone_id(old_clone_id, new_clone_id, the_count, the_clone_map)
       ! Checks through the clone map to see if old_clone_id exists already.
       ! If not, adds it to the_clone_map, increments the_count
       use iso_fortran_env, only: INT64
       implicit none
 
+      integer(INT64), intent(in)    :: old_clone_id
       integer(INT64), intent(out)   :: new_clone_id
-      integer(INT64), intent(inout) :: old_clone_id
       integer(INT64), intent(inout) :: the_count
       integer(INT64), intent(inout) :: the_clone_map(:)
       
@@ -713,31 +731,29 @@ contains
       ! check if they are on-processor
 
       ! Count clones by proc
-      allocate(tmp(0:nprocs))
+      allocate(tmp(0:nprocs-1))
       n_nodes = 0
-      tmp = -1
+      tmp = 0
       do iTmp = 1, numcell_clone - numcell
          iCell = clone_map(iTmp)
          iProc = get_proc_id(iCell, nprocs, partition)
          if ( iProc /= g_myid) then
-            if (tmp(iProc) < 0) then
-               ! only check tmp because recv and send procs
+            if (tmp(iProc) == 0) then
                n_nodes = n_nodes + 1
-               tmp(iProc) = 0
             end if
             tmp(iProc) = tmp(iProc) + 1
          end if
       end do
 
+      ! At this point tmp() holds the number we expect to receive from each processor
+      
       ! Generate the Node structure
       ! Replaces tmp with a mapping to node
       ! Restarts tmp counting
       allocate(proc_map(0:nprocs-1), stat=ierror)
-      if (ierror /= 0) write(*,*) 'error allocating proc_map'
       allocate(nodes(n_nodes), stat=ierror)
-      if (ierror /= 0) write(*,*) 'error allocating nodes'
       allocate(tmp_id_recv(n_nodes), stat=ierror)
-      if (ierror /= 0) write(*,*) 'error allocating tmp_id_recv'
+      if (ierror /= 0) stop 'error allocating in clone_init()'
       proc_map = -1
       iNow = 0
       do iTmp = numcell + 1, numcell_clone
@@ -751,6 +767,7 @@ contains
             nodes(iNow)%rank = iProc
             nodes(iNow)%status = IDLE
             nodes(iNow)%nRecv = tmp(iProc)
+            
             ! Allocate space for mapping data received
             allocate(nodes(iNow)%recv_map(nodes(iNow)%nrecv))
 
@@ -808,6 +825,7 @@ contains
          call mpi_wait(nodes(iNode)%request_recv, MPI_STATUS_IGNORE, ierror)
          
          ! Allocate space and post receive for IDS
+         !SS Replace mother cells with daughters to handle AMR boundaries
          allocate(nodes(iNode)%send_id(nodes(iNode)%nSend))
          call mpi_irecv(nodes(iNode)%send_id, nodes(iNode)%nSend, MPI_INTEGER, &
               nodes(iNode)%rank, 3, myComm, nodes(iNode)%request_recv, ierror)
@@ -836,23 +854,6 @@ contains
       
     END ASSOCIATE
 
-  CONTAINS
-    pure integer function get_proc_id(theCell, nprocs, partition)
-      use iso_fortran_env, only: INT64
-      implicit none
-      integer(INT64), intent(in) :: theCell
-      integer, intent(in) :: nprocs
-      integer(INT64), intent(in) :: partition(0:)
-      integer :: i
-
-      get_proc_id = -1
-      do i = 1, nprocs
-         if ( theCell < partition(i) ) then
-            get_proc_id = i - 1
-            exit
-         end if
-      end do
-    end function get_proc_id
   end subroutine clone_init
 
 

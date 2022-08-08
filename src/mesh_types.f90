@@ -16,7 +16,7 @@ module mesh_state_types
   public
   
   type mesh_state_core_t
-     real(REAL64), dimension(:), pointer :: rho
+     real(REAL64), dimension(:), pointer :: rho => null()
   end type mesh_state_core_t
   type mesh_state_frac_var_t
      integer :: nmat
@@ -56,7 +56,7 @@ module interface_types
      integer :: interface_option = 1
      integer :: vof_multimat_treatment = 1
      logical :: flatten_interface_vel = .false.
-     logical, pointer :: is_vof_mat(:)
+     logical, pointer :: is_vof_mat(:) => null()
   end type interface_option_t
 end module interface_types
 
@@ -136,20 +136,21 @@ module mesh_types
   use mesh_state_types
   public
   type levels_t
-     integer, pointer :: numtop
-     integer, pointer :: allnumtop
-     integer, dimension(:), pointer :: ltop
-     integer, dimension(:), pointer :: alltop
-     integer, dimension(:), pointer :: ltop_nv
-     integer, dimension(:), pointer :: cell_level
+     integer, pointer :: numtop => null()
+     integer, pointer :: allnumtop => null()
+     integer, dimension(:), pointer :: ltop => null()
+     integer, dimension(:), pointer :: alltop => null()
+     integer, dimension(:), pointer :: ltop_nv => null()
+     integer, dimension(:), pointer :: cell_level => null()
+     integer(INT64), dimension(:), pointer :: cell_daughter => null()
   end type levels_t
   type faces_t
-     integer, dimension(:), pointer :: face_num
-     integer, dimension(:,:), pointer :: face_hi
-     integer, dimension(:,:), pointer :: face_lo
-     integer, dimension(:,:), pointer :: face_flag
-     integer, dimension(:,:), pointer :: face_id
-     integer, dimension(:,:,:), pointer :: face_local
+     integer, dimension(:), pointer :: face_num => null()
+     integer, dimension(:,:), pointer :: face_hi => null()
+     integer, dimension(:,:), pointer :: face_lo => null()
+     integer, dimension(:,:), pointer :: face_flag => null()
+     integer, dimension(:,:), pointer :: face_id => null()
+     integer, dimension(:,:,:), pointer :: face_local => null()
   end type faces_t
   type neighbors_t
   end type neighbors_t
@@ -158,28 +159,28 @@ module mesh_types
   type user_refine_vars_t
   end type user_refine_vars_t
   type cells_t
-     integer, pointer :: numcell                           ! needed
-     integer(INT64), pointer ::   sum_numcell 
-     integer, pointer :: max_numcell
-     integer, pointer :: numcell_clone                     ! needed
-     integer, pointer :: mxcell   
+     integer, pointer :: numcell => null()                          ! needed
+     integer(INT64), pointer ::   sum_numcell  => null()
+     integer, pointer :: max_numcell => null()
+     integer, pointer :: numcell_clone => null()                    ! needed
+     integer, pointer :: mxcell => null() 
 
-     integer(INT64), dimension(:), pointer :: cell_address
+     integer(INT64), dimension(:), pointer :: cell_address => null()
 
-     logical(c_bool), dimension(:), pointer :: cell_active
+     logical(c_bool), dimension(:), pointer :: cell_active => null()
 
      ! set in kidmom_module in check_cell_center
-     real(REAL64), dimension(:,:), pointer :: cell_center
+     real(REAL64), dimension(:,:), pointer :: cell_center => null()
 
      ! Geometric centroid of cell, same for rectangular geometry, differs
      ! for cylindrical and spherical geometry.
-     real(REAL64), dimension(:,:), pointer :: cell_position
+     real(REAL64), dimension(:,:), pointer :: cell_position => null()
 
-     real(REAL64), dimension(:,:), pointer :: cell_half
+     real(REAL64), dimension(:,:), pointer :: cell_half => null()
 
      ! Radial distance from the cell lower/high edge to the centroid.
-     real(REAL64), dimension(:,:), pointer :: cell_half_lo, &    ! needed 
-          cell_half_hi    ! needed 
+     real(REAL64), dimension(:,:), pointer :: cell_half_lo => null(), &    ! needed 
+          cell_half_hi => null()    ! needed 
 
 
      ! cell volume
@@ -200,6 +201,7 @@ module mesh_types
   end type mesh_t
   contains
     subroutine release_mesh(m)
+      use pio_interface, only: pio_release
       use mem_release, only: release
       type(mesh_t) :: m
       if (allocated(m%cells)) then
@@ -222,6 +224,11 @@ module mesh_types
          call release(m%cells%global_base)
          call release(m%cells%global_base_old)
          deallocate(m%cells)
+      end if
+      if (allocated(m%levels)) then
+         ! Release levels
+         call pio_release(m%levels%cell_daughter)
+         deallocate(m%levels)
       end if
       if (allocated(m%faces)) then
          ! Release faces

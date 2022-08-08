@@ -238,19 +238,16 @@ contains
     integer(c_int64_t) :: idxClone
     integer, dimension(:), pointer :: cell_level  
     integer :: idMap(5,3)  ! Maps real ID to face_id array
-    integer, parameter :: offsets(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
-    integer(c_int64_t), pointer, dimension(:) :: daughter
+    integer, parameter :: offsets_n(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
     integer :: iCheck
 
-
-    daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
 
     ! Two pass face creation - one pass for counting and one for creating
 
     ASSOCIATE(m => self%m, faces => self%m%faces)
       ndim = m%sim%numdim
 
-      if (iDim > 1 ) then
+      if (nDim > 1 ) then
          n_shift = 2 * ndim - 3
       else
          n_shift = 0
@@ -259,6 +256,14 @@ contains
       cell_level => m%levels%cell_level
 
       ! Count faces in all directions
+      !
+      ! All low side faces belong to the current cell unless
+      ! the low side boundary cell is finer (type 4 face).
+      !
+      ! High side faces count when on physical / PE boundaries
+      ! and when on an AMR boundary with a coarse cell on the
+      ! high side (type-4 face)
+
       nFaces = 0
       maxFaces = 0
       META_DIM: do idim = 1, ndim
@@ -266,30 +271,29 @@ contains
             iCell = m%levels%ltop(iTop)
 
             id_lo = nbrs(iCell, 2 * idim - 1)
-            iType = get_face_type(iCell, id_lo, LO_SIDE)
-            nFaces(iType, idim) = nFaces(iType, idim) + 1
-            if (iType == 4) then
-               ! add more faces based on dimensionality
-               nFaces(iType, idim) = nFaces(iType, idim) + n_shift
+            iType = get_face_type(iCell, id_lo, LO_SIDE, m%cells%numcell)
+            if (iType == 5 .or. iType == 3 .or. iType == 1) then
+               nFaces(iType, idim) = nFaces(iType, idim) + 1
+               if (iType == 5 .and. id_lo > m%cells%numcell) then
+                  ! Add coplanar Off-processor AMR faces
+                  nFaces(iType, idim) = nFaces(iType, idim) + n_shift
+               end if
             end if
                
             id_hi = nbrs(iCell, 2 * idim)
-            iType = get_face_type(iCell, id_hi, HI_SIDE)
-            if (id_hi == iCell) then
-               ! Add boundary face
+            iType = get_face_type(iCell, id_hi, HI_SIDE, m%cells%numcell)
+            if ((iType == 2 .or. iType == 4) .and. id_hi <= m%cells%numcell) then
+               ! Add Face
                nFaces(iType,idim) = nFaces(iType,idim) + 1
             else if (id_hi > m%cells%numcell) then
-               ! Need to add boundary faces
+               ! Need to add PE boundary faces
                nFaces(iType,idim) = nFaces(iType,idim) + 1
-               if (iType == 5) then
-                  ! add more faces based on dimensionality
-                  nFaces(iType, idim) = nFaces(iType, idim) + n_shift
-               end if
             end if
          end do META_CELL
          ! Total number of faces in this direction
          maxFaces = max(maxFaces, sum(nFaces(:,idim)))
       end do META_DIM
+
       ! Count max number of face types
       idMap = -1
       nFaceTypes = 0
@@ -315,8 +319,15 @@ contains
            faces%face_local(maxFaces, 2, ndim) &
            )
 
+      write(*,*) '___________CC:', m%cells%numcell, m%cells%numcell_clone, 'ndim=',ndim, 'nshift=',n_shift
+      do idim=1,3
+         write(*,*) 'Offsets_',idim, offsets_n(:,idim)
+      end do
       ! Populate face meta data
       faces%face_num = 0
+      faces%face_local = -1
+      faces%face_lo = -1
+      faces%face_hi = -1
       do idim = 1, ndim
          offset_now = 1
          do iType = 1, 5
@@ -327,6 +338,7 @@ contains
                faces%face_lo(iIndex, iDim) = offset_now
                faces%face_hi(iIndex, iDim) = offset_now + nFaces(iType, iDim) - 1
                offset_now = offset_now + nFaces(iType, iDim)
+               write(*,*) 'idim=', iDim, 'itype=', iType, 'n=', faces%face_hi(iIndex, iDim) - faces%face_lo(iIndex, iDim) + 1
             end if
          end do
       end do
@@ -336,83 +348,67 @@ contains
          faceIndex = 0
          LOOP_CELL: do iTop = 1, m%levels%numtop
             iCell = m%levels%ltop(iTop)
-            iCheck = iCell
-            if (daughter(iCheck) > 0) then
-               write(*,*) clone_myid(), 'ERROR 1: ', iCheck, daughter(iCheck), m%cells%numcell
-            end if
-            
+
+            ! Low side
             id_lo = nbrs(iCell, 2 * idim - 1)
-            iCheck = id_lo
-            if (daughter(iCheck) > 0) then
-               write(*,*) clone_myid(), 'ERROR 2: ', iCheck, daughter(iCheck), m%cells%numcell
+            iType = get_face_type(iCell, id_lo, LO_SIDE, m%cells%numcell)
+            if (iType == 5 .or. iType == 3 .or. iType == 1) then
+               iIndex = idMap(iType, iDim)
+               iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
+               faces%face_local(iFace, LO_SIDE, idim) = id_lo
+               faces%face_local(iFace, HI_SIDE, idim) = iCell
+               faceIndex(iIndex) = faceIndex(iIndex) + 1
+               if (iType == 5 .and. id_lo > m%cells%numcell) then
+                  ! Add in n_shift more faces for off-processor AMR
+                  ! do nothing for off processor for now
+               end if
             end if
 
-            iType = get_face_type(iCell, id_lo, LO_SIDE)
-            iIndex = idMap(iType, iDim)
-            iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
-            faces%face_local(iFace, LO_SIDE, idim) = id_lo
-            faces%face_local(iFace, HI_SIDE, idim) = iCell
-            faceIndex(iIndex) = faceIndex(iIndex) + 1
             
-            if (iType == 4) then
-               ! Add in n_shift more faces
-               do jTmp = 1, n_shift
-                  if (id_lo > m%cells%numcell) then
-                     faces%face_local(iFace, LO_SIDE, idim) = id_lo + jTmp
-                  else
-                     faces%face_local(iFace, LO_SIDE, idim) = id_lo + offsets(jTmp, idim)
-                  end if
-                  faces%face_local(iFace, HI_SIDE, idim) = iCell
-                  faceIndex(iIndex) = faceIndex(iIndex) + 1
-                  iCheck = faces%face_local(iFace, LO_SIDE, idim)
-                  if (daughter(iCheck) > 0) then
-                     write(*,*) clone_myid(), 'ERROR 3: ', iCheck, daughter(iCheck), m%cells%numcell
-                  end if
-
-               end do
-            end if
-
+            ! High side
             id_hi = nbrs(iCell, 2 * idim )
-            iType = get_face_type(iCell, id_hi, HI_SIDE)
-            if ((id_hi == iCell) .or. id_hi > m%cells%numcell) then
+            iType = get_face_type(iCell, id_hi, HI_SIDE, m%cells%numcell)
+            if ((iType == 2 .or. iType == 4) .and. id_hi <= m%cells%numcell) then
                ! Need to add PE boundary faces
                iIndex = idMap(iType, iDim)
                iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
                faces%face_local(iFace, LO_SIDE, idim) = iCell
                faces%face_local(iFace, HI_SIDE, idim) = id_hi
                faceIndex(iIndex) = faceIndex(iIndex) + 1
-               if (iFace == 5) then
-                  ! Only triggered on PE boundaries
-                  ! Add in n_shift more faces
-                  do jTmp = 1, n_shift
-                     faces%face_local(iFace, LO_SIDE, idim) = iCell
-                     if (id_lo > m%cells%numcell) then
-                        faces%face_local(iFace, HI_SIDE, idim) = id_hi + jTmp
-                     else
-                        faces%face_local(iFace, HI_SIDE, idim) = id_hi + offsets(jTmp, idim)
-                     end if
-                     faceIndex(iIndex) = faceIndex(iIndex) + 1
-                     iCheck = faces%face_local(iFace, HI_SIDE, idim)
-                     if (daughter(iCheck) > 0) then
-                        write(*,*) clone_myid(), 'ERROR 4: ', iCheck, daughter(iCheck), m%cells%numcell
-                     end if
-                  end do
-               end if
+            else if (id_hi > m%cells%numcell) then
+               ! Need to add PE boundary faces
+               iIndex = idMap(iType, iDim)
+               iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
+               faces%face_local(iFace, LO_SIDE, idim) = iCell
+               faces%face_local(iFace, HI_SIDE, idim) = id_hi
+               faceIndex(iIndex) = faceIndex(iIndex) + 1
+               ! if (id_hi > m%cells%numcell) then
+               !    ! Only triggered on PE boundaries
+               !    ! Add in n_shift more faces
+               !    do jTmp = 1, n_shift
+               !       iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
+               !       faces%face_local(iFace, LO_SIDE, idim) = iCell
+               !       faces%face_local(iFace, HI_SIDE, idim) = id_hi + jTmp
+               !       faceIndex(iIndex) = faceIndex(iIndex) + 1
+               !       iCheck = faces%face_local(iFace, HI_SIDE, idim)
+               !    end do
+               ! end if
             end if
          end do LOOP_CELL
       end do LOOP_DIM
 
-      call pio_release(daughter)
-
     END ASSOCIATE
   contains
-    integer function get_face_type(the_cell, the_nbr, the_side)
+    pure integer function get_face_type(the_cell, the_nbr, the_side, numcell)
       use iso_fortran_env, only: INT64
       implicit none
       integer(INT64), intent(in) :: the_cell, the_nbr
-      integer, intent(in) :: the_side
-      
-      if ( the_nbr == the_cell ) then
+      integer, intent(in) :: the_side, numcell
+
+      if (the_nbr > numcell) then
+         ! Force off-processor to type 3
+         get_face_type = 3
+      else if ( the_nbr == the_cell ) then
          if (the_side == LO_SIDE) then
             get_face_type = 1
          else
@@ -509,8 +505,6 @@ contains
       m%cells%sum_numcell = nCount
       m%cells%max_numcell = nCount
 
-      write(*,*) clone_myid(), 'MY_NCOUNT',iStart, nCount, '-------------------------------------'
-
       !*-- Read in neighbors for face and clone processing
       allocate(nbrs(nCount, 2 * ndim))
       do idim = 1, ndim
@@ -527,7 +521,8 @@ contains
 
       !*-- Count number of top level cells
       ! Fix neighbors array for refined neighbors
-      daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
+      m%levels%cell_daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
+      daughter => m%levels%cell_daughter
       m%levels%numtop = 0
       m%levels%allnumtop = 0
       iEnd = iStart + nCount - 1
@@ -535,13 +530,13 @@ contains
          if (daughter(i) <= 0) then 
             m%levels%numtop = m%levels%numtop  + 1
             do iDim = 1, nDim
-               ! Lo side is finer
+               ! Check low side for type 4 face
                iNbr = nbrs(i, 2*iDim-1)
                if (iNbr >= iStart .and. iNbr <= iEnd .and. daughter(iNbr) > 0) then
                   nbrs(i,2*iDim-1) = daughter(iNbr) + offset_n(iDim)
                end if
                
-               ! Hi side is finer
+               ! Check high side for type 5 face
                iNbr = nbrs(i, 2*iDim)
                if (iNbr >= iStart .and. iNbr <= iEnd .and. daughter(iNbr) > 0) then
                   nbrs(i,2*iDim) = daughter(iNbr)
@@ -560,9 +555,6 @@ contains
          end if
       end do
 
-      ! Release daughter since no longer needed
-      call pio_release(daughter)
-      
       !*-- initialize clones
       call clone_init(self%m, nbrs, pioID)
 

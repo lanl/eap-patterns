@@ -212,7 +212,7 @@ contains
                 ihi = m%faces%face_local(n, HI_SIDE, idim)
                 if (iType <= 2 ) then
                    ! Types 1, & 2 have same cell on both sides
-                   if (ilo <= m%cells%numcell .and. ilo > 0) then
+                   if (ilo >= 1 .and. ilo <= m%cells%numcell) then
                       values(ilo) = values(ilo) + 1.0D0
                    else
                       write(*,*) clone_myid(), ': ilo killer:', n, iType, iDim, ihi, ilo
@@ -253,7 +253,7 @@ contains
     expected_result = real(n_iter * 2 * m%sim%numdim, REAL64) * m%levels%numtop
     do i = 1, m%levels%numtop
        iCell = m%levels%ltop(i)
-       mothers(icell) = 0.0
+       mothers(iCell) = 0.0
        my_sum = my_sum + values(iCell)
        ! reset values(i) to known bad value
     end do
@@ -271,9 +271,7 @@ contains
     ! check results for mother cells
     my_sum = 0.0
     do iCell = 1, m%cells%numcell
-       if ( mothers(iCell) < 0.5 ) then
-          my_sum = my_sum + values(iCell)
-       end if
+       my_sum = my_sum + mothers(iCell) * values(iCell)
     end do
     expected_result = 0.0D0
     call clone_reduce(all_sum, my_sum, CLONE_SUM)
