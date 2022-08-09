@@ -58,7 +58,11 @@ program test
   nprocs = clone_nprocs()
 #else
   call GET_COMMAND_ARGUMENT(2, arg)
-  read(arg,*) nprocs
+  if ( len_trim(arg) > 0) then
+     read(arg,*) nprocs
+  else
+     nprocs = 1
+  end if
   call fm%init_from_PIO(trim(fname), nprocs, myid)
 #endif
   
