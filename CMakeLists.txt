@@ -7,6 +7,7 @@ project(mygrad LANGUAGES Fortran CXX C)
 option(EP_PIO "Build targets with PIO integration;" "ON")
 option(EP_MPI "Build targets with MPI integration;" "ON")
 option(EP_SANITIZE "Add address sanitizer flag;" "ON")
+option(EP_GZ "Enable GZ file reading in PIO;" "ON")
 
 # unimplemented options
 option(EP_HDF5 "Build targets with HDF5 integration; not implemented yet" "OFF")
@@ -76,6 +77,10 @@ endif ()
 add_executable(mygrad ${F90_SOURCES} ${CXX_SOURCES} ${C_SOURCES} ${CXX_HEADERS} ${C_HEADERS})
 set_property(TARGET mygrad PROPERTY LINKER_LANGUAGE Fortran)
 
+if ( EP_GZ )
+  set(CMAKE_CXX_FLAGS " ${CMAKE_CXX_FLAGS} -DENABLE_GZ=1 ")
+  set_target_properties(mygrad PROPERTIES LINK_FLAGS " -lz ")
+endif ()
 
 if ( EP_MPI )
   find_package(MPI REQUIRED)
