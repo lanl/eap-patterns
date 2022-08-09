@@ -441,7 +441,7 @@ contains
     integer(INT64) :: nbrs(:,:)
     integer(INT64), intent(in) :: clone_map(:)
     integer, intent(in) :: pioid
-
+    
     ! magic offsets for xRage mesh
     integer, parameter :: offsets(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
 
@@ -456,6 +456,9 @@ contains
     type(data_t), allocatable :: new_remote_id(:)
     integer, allocatable :: request_send(:), new_recv_map(:), new_send_size(:)
     integer(INT64), pointer :: daughter(:) => null()
+
+    ! tags for messages
+    integer, parameter :: TAG_N=101, TAG_IDS=102
 
     ASSOCIATE( &
          ndim => m%sim%numdim, &
@@ -575,9 +578,9 @@ contains
          iProc = nodes(iNode)%rank
          ! post send and receive for new size
          call mpi_isend(node_count(iNode), 1, MPI_INTEGER, &
-              iProc, 101, myComm, nodes(iNode)%request_send, ierror)
+              iProc, TAG_N, myComm, nodes(iNode)%request_send, ierror)
          call mpi_irecv(new_send_size(iNode), 1, MPI_INTEGER, &
-              iProc, 101, myComm, nodes(iNode)%request_recv, ierror)
+              iProc, TAG_N, myComm, nodes(iNode)%request_recv, ierror)
 
          ! Skip work if no change
          if (node_count(iNode) == nodes(iNode)%nRecv) cycle
@@ -604,7 +607,7 @@ contains
 
          ! send the new_remote_ids to remote processor
          call mpi_isend(new_remote_id(iNode)%i, node_count(iNode), MPI_INTEGER, &
-              iProc, 102, myComm, request_send(iNode), ierror)
+              iProc, TAG_IDS, myComm, request_send(iNode), ierror)
 
          ! Update receive counts and receive map
          nodes(iNode)%nrecv = iLast
@@ -627,7 +630,7 @@ contains
          deallocate(nodes(iNode)%send_id)
          allocate(nodes(iNode)%send_id(new_send_size(iNode)))
          call mpi_irecv(nodes(iNode)%send_id, nodes(iNode)%nSend, MPI_INTEGER, &
-              iProc, 102, myComm, nodes(iNode)%request_recv, ierror)
+              iProc, TAG_IDS, myComm, nodes(iNode)%request_recv, ierror)
       end do
 
       ! Update mesh data structures
@@ -657,6 +660,11 @@ contains
       ! Wait for MPI receives to finish
       call mpi_waitall(n_nodes, nodes(:)%request_recv, MPI_STATUSES_IGNORE, ierror)
 
+      ! Wait for MPI sends to finish
+      call mpi_waitall(n_nodes, nodes(:)%request_send, MPI_STATUSES_IGNORE, ierror)
+      call mpi_waitall(n_nodes, request_send, MPI_STATUSES_IGNORE, ierror)
+
+
       !*-- Resize AMR cell_level with new ghosts and update clones
       old_cell_level => m%levels%cell_level
       nullify(m%levels%cell_level)
@@ -672,10 +680,6 @@ contains
       m%levels%cell_daughter(1:m%cells%numcell) = daughter(1:m%cells%numcell)
       call pio_release(daughter)
       call clone_get(m%levels%cell_daughter)
-
-      ! Wait for MPI sends to finish
-      call mpi_waitall(n_nodes, nodes(:)%request_send, MPI_STATUSES_IGNORE, ierror)
-      call mpi_waitall(n_nodes, request_send, MPI_STATUSES_IGNORE, ierror)
 
       ! Deallocate memory that was used for MPI buffers
       do iNode = 1, n_nodes
@@ -718,6 +722,7 @@ contains
     integer(INT64), allocatable :: clone_map(:)
     integer, allocatable :: proc_map(:), tmp(:)
     type(data_t), allocatable :: tmp_id_recv(:)
+    integer, parameter :: TAG_NSEND=1, TAG_IDS=3
     
     ASSOCIATE(                                   &
          numtop => m%levels%numtop,              &
@@ -815,15 +820,15 @@ contains
          iProc = nodes(iNode)%rank
          ! post receive for how many we need to send
          call mpi_irecv(nodes(iNode)%nSend, 1, MPI_INTEGER, &
-             nodes(iNode)%rank, 1, myComm, nodes(iNode)%request_recv, ierror)
+             nodes(iNode)%rank, TAG_NSEND, myComm, nodes(iNode)%request_recv, ierror)
          
          ! post how many we expect to receive using tmp array to hold request id
          call mpi_isend(nodes(iNode)%nRecv, 1, MPI_INTEGER, &
-              nodes(iNode)%rank, 1, myComm, tmp(iNode), ierror)
+              nodes(iNode)%rank, TAG_NSEND, myComm, tmp(iNode), ierror)
          
          ! post IDs of cells we expect to receive
          call mpi_isend(tmp_id_recv(iNode)%i, nodes(iNode)%nRecv, MPI_INTEGER, &
-             nodes(iNode)%rank, 3, myComm, nodes(iNode)%request_send, ierror)
+             nodes(iNode)%rank, TAG_IDS, myComm, nodes(iNode)%request_send, ierror)
       end do
 
       ! Wait for communications to end and collect up what we need to send
@@ -837,7 +842,7 @@ contains
          !SS Replace mother cells with daughters to handle AMR boundaries
          allocate(nodes(iNode)%send_id(nodes(iNode)%nSend))
          call mpi_irecv(nodes(iNode)%send_id, nodes(iNode)%nSend, MPI_INTEGER, &
-              nodes(iNode)%rank, 3, myComm, nodes(iNode)%request_recv, ierror)
+              nodes(iNode)%rank, TAG_IDS, myComm, nodes(iNode)%request_recv, ierror)
       end do
 
       ! Wait for all communications to finish
