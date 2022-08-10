@@ -439,7 +439,7 @@ contains
 
     type(mesh_t) :: m
     integer(INT64) :: nbrs(:,:)
-    integer(INT64), intent(in) :: clone_map(:)
+    integer(INT64), allocatable, intent(in) :: clone_map(:)
     integer, intent(in) :: pioid
     
     ! magic offsets for xRage mesh
@@ -447,8 +447,8 @@ contains
 
     integer :: iTop, iDim, iProc, iBase, iNode, jTmp, iClone, ierror, iLast, iTmp
     integer :: n_shift, n_additional, n_external, old_id
-    integer(INT64) :: iCell, iNbr
-    integer(INT64), pointer :: tmp_cell_level(:)
+    integer(INT64) :: iCell, iNbr, jCell
+    integer(INT64), pointer :: tmp_cell(:)
     integer, pointer :: old_cell_level(:)
 
     integer, allocatable :: clone_to_proc(:), new_index(:)
@@ -456,6 +456,7 @@ contains
     type(data_t), allocatable :: new_remote_id(:)
     integer, allocatable :: request_send(:), new_recv_map(:), new_send_size(:)
     integer(INT64), pointer :: daughter(:) => null()
+    logical :: found
 
     ! tags for messages
     integer, parameter :: TAG_N=101, TAG_IDS=102
@@ -483,20 +484,36 @@ contains
       !* The cell levels will be overridden with final numbers at the end
 
       ! Read in cell level from the PIO file and populate m%levels%cell_level(1:numcell)
-      tmp_cell_level => pio_get_range_i64(pioid, "cell_level", 0, partition(g_myid), &
+      tmp_cell => pio_get_range_i64(pioid, "cell_level", 0, partition(g_myid), &
            partition(g_myid+1)-partition(g_myid))
       allocate(m%levels%cell_level(numcell_clone))
-      m%levels%cell_level(1:numcell) = tmp_cell_level
-      call pio_release(tmp_cell_level)
+      m%levels%cell_level(1:numcell) = tmp_cell
+      call pio_release(tmp_cell)
 
       ! Fill in the clone cell levels
       call clone_get(m%levels%cell_level)
+
 
       if (ndim < 2 .or. numcell_clone == numcell) then
          ! no changes required
          return
       end if
 #ifdef ENABLE_MPI
+
+      ! update cell daughters
+      tmp_cell => m%levels%cell_daughter
+      nullify(m%levels%cell_daughter)
+      allocate(m%levels%cell_daughter(numcell_clone))
+      m%levels%cell_daughter(1:numcell) = tmp_cell(1:numcell)
+      call pio_release(tmp_cell)
+      ! Fill in the clone cell daughters
+      call clone_get(m%levels%cell_daughter)
+      daughter => m%levels%cell_daughter
+
+      ! Fix cases where neighbor has a daughter.
+      ! This only occurs when we are a coarse cell and the PE neighbor
+      ! has a fine cell.
+
 
       ! convenience scalar
       n_external = numcell_clone - numcell
@@ -808,7 +825,6 @@ contains
       end if
       
       ! Deallocate temporary memory
-      deallocate(clone_map)
       deallocate(proc_map)
 
 #ifdef ENABLE_MPI
@@ -866,6 +882,7 @@ contains
       ! Now update clone ids for AMR transfers
       call clone_update_AMR_boundary(m, nbrs, clone_map, pioid)
       
+      deallocate(clone_map)
     END ASSOCIATE
 
   end subroutine clone_init

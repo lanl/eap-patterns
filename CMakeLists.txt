@@ -78,8 +78,10 @@ add_executable(mygrad ${F90_SOURCES} ${CXX_SOURCES} ${C_SOURCES} ${CXX_HEADERS} 
 set_property(TARGET mygrad PROPERTY LINKER_LANGUAGE Fortran)
 
 if ( EP_GZ )
+  find_package(ZLIB REQUIRED)
   set(CMAKE_CXX_FLAGS " ${CMAKE_CXX_FLAGS} -DENABLE_GZ=1 ")
-  set_target_properties(mygrad PROPERTIES LINK_FLAGS " -lz ")
+  include_directories(${ZLIB_INCLUDE_DIRS})
+  target_link_libraries(mygrad ${ZLIB_LIBRARIES})
 endif ()
 
 if ( EP_MPI )
