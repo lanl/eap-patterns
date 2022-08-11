@@ -52,32 +52,31 @@ program test
   ! Get the filename
   call GET_COMMAND_ARGUMENT(1, fname)
 
+  ! Quick check on the file type
   if (.not. binfile_verify_signature(fname)) then
      write(*,*) '_______ERROR: ', trim(fname), ' is not an EAP-bin file'
-     return
-  end if
-
-#ifdef ENABLE_MPI
-  call fm%init(trim(fname))
-  myid = clone_myid()
-  nprocs = clone_nprocs()
-#else
-  call GET_COMMAND_ARGUMENT(2, arg)
-  if ( len_trim(arg) > 0) then
-     read(arg,*) nprocs
   else
-     nprocs = 1
-  end if
-  myid = 0
-  call fm%init(trim(fname), nprocs, myid)
+#ifdef ENABLE_MPI
+     call fm%init(trim(fname))
+     myid = clone_myid()
+     nprocs = clone_nprocs()
+#else
+     call GET_COMMAND_ARGUMENT(2, arg)
+     if ( len_trim(arg) > 0) then
+        read(arg,*) nprocs
+     else
+        nprocs = 1
+     end if
+     myid = 0
+     call fm%init(trim(fname), nprocs, myid)
 #endif
-  
-    n_iter = 1
-    call test_driver(fm%m, n_iter)
 
-    call clone_barrier()
-    if (myid == 0) write(*,*) 'releasing'
-    call fm%release()
-    call clone_exit()
+     n_iter = 1
+     call test_driver(fm%m, n_iter)
 
+     call clone_barrier()
+     if (myid == 0) write(*,*) 'releasing'
+     call fm%release()
+     call clone_exit()
+  endif
 end program test

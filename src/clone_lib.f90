@@ -19,6 +19,7 @@ module clone_lib_module
   public clone_exit
   public clone_barrier
   public clone_reduce
+  public clone_abort
 
   integer, parameter :: IDLE = 1
   integer, parameter :: SENT = 2
@@ -174,6 +175,19 @@ contains
     clone_myid = g_myid
   end function clone_myid
 
+  subroutine clone_abort(message)
+    implicit none
+    character(len=*) :: message
+    write(*,*) g_myid, '_____________ERROR ERROR ERROR________________'
+    write(*,*) g_myid, message
+    write(*,*) g_myid, '----------------------------------------------'
+#ifndef ENABLE_MPI
+    call MPI_Abort(mycomm, 1)
+#else
+    stop 'Error!  See above.'
+#endif
+  end subroutine clone_abort
+  
   function data_array_alloc(my_type) result(ptr)
     ! allocates n_nodes arrays of right size
     ! for MPI transfers.  This should really
@@ -571,7 +585,7 @@ contains
                n_additional = n_additional + n_shift           ! Number of new clones
                if (iNbr > size(clone_map,1) .or. iProc < 0 .or. iProc >= g_nprocs) then
                   write(*,*) g_myid, '_______PROBLEM?', iProc, g_nprocs, node_map(iNbr+numcell), iNbr, size(clone_map)
-                  call flush()
+                  call flush(6)
                end if
                iBase = clone_map(iNbr) - partition(iProc) + 1
                sister_clones(1:n_shift, iNbr) = iBase + offsets(1:n_shift, iDim)
@@ -597,7 +611,9 @@ contains
       !  - receive the new recv_map from remote processorA
 
       ! allocate tmp space for MPI communications
-      allocate(new_remote_id(n_nodes), request_send(n_nodes), new_send_size(n_nodes))
+      allocate(new_remote_id(n_nodes))
+      allocate(request_send(n_nodes))
+      allocate(new_send_size(n_nodes))
       request_send = MPI_REQUEST_NULL
 
       do iNode = 1, n_nodes

@@ -414,7 +414,7 @@ contains
   subroutine init(self, myfile, mpinprocs, mpiid)
     use iso_fortran_env, only: INT64, REAL64
     use iso_c_binding
-    use clone_lib_module, only: mycomm, clone_get, clone_base_init, clone_init, clone_barrier
+    use clone_lib_module, only: mycomm, clone_abort, clone_get, clone_base_init, clone_init, clone_barrier
     implicit none
 
     class(fakemesh_t) :: self
@@ -517,6 +517,9 @@ contains
          end if
       end do
 
+      if (m%levels%numtop == 0) then
+         call clone_abort('No top level cells.  Reduce number of processors')
+      end if
       !*-- Initialize ltop
       allocate(m%levels%ltop(m%levels%numtop))
       iTmp = 0

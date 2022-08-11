@@ -262,7 +262,7 @@ contains
     call clone_reduce(all_sum, my_sum, CLONE_SUM)
     call clone_reduce(all_expected, expected_result, CLONE_SUM)
     call clone_barrier()
-    if (clone_myid() == 0) then
+    if (clone_myid() == 0 .and. all_expected /= all_sum) then
        write(*,*) clone_myid(), "daughters:", all_sum, all_expected, all_sum - all_expected
     end if
     call printit("face_scatter daughters", (all_sum ==  all_expected), my_dt)
@@ -276,7 +276,7 @@ contains
     call clone_reduce(all_sum, my_sum, CLONE_SUM)
     call clone_reduce(all_expected, expected_result, CLONE_SUM)
     call clone_barrier()
-    if (clone_myid() == 0) then
+    if (clone_myid() == 0 .and. all_expected /= all_sum) then
        write(*,*) clone_myid(), "mothers:", all_sum, all_expected, all_sum - all_expected
     end if
     call printit("face_scatter mothers", (all_sum ==  all_expected), my_dt)
