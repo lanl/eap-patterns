@@ -23,9 +23,9 @@ contains
     myid = clone_myid()
     
     if (myid == 0 ) write(*,'(/,"-------BEGIN TESTS----------",/)')
-    call topcell_sum(m, n_iter)
     call faces_sum(m, n_iter)
     call faces_scatter(m, n_iter)
+    call topcell_sum(m, n_iter)
     if (myid == 0 ) write(*,'(/,"--------END TESTS-----------",/)')
   end subroutine test_driver
 
@@ -162,11 +162,12 @@ contains
 
     ! Report the results
     if (myid == 0) then
-       write(*,*) 'type   real_faces pe_boundary_faces'
        do iType = 1, 5
-          write(*,'(I4, " ", 2(I12, " "))') iType, global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), &
-               global_faces_on_pe_boundary(iType)
+          !write(*,'(I4, " ", 2(I12, " "))') iType, global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), &
+          ! global_faces_on_pe_boundary(iType)
        end do
+       write(*,'("            Faces: ", 5(I12, " "))') (global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), iType=1,5)
+       write(*,'("       Bdry Faces: ", 5(I12, " "))') (global_faces_on_pe_boundary(iType), iType=1,5)
     end if
     call printit("faces_sum", .true., my_dt)
   end subroutine faces_sum
@@ -276,10 +277,12 @@ contains
     call clone_reduce(all_sum, my_sum, CLONE_SUM)
     call clone_reduce(all_expected, expected_result, CLONE_SUM)
     call clone_barrier()
-    if (clone_myid() == 0 .and. all_expected /= all_sum) then
-       write(*,*) clone_myid(), "mothers:", all_sum, all_expected, all_sum - all_expected
+    if (all_expected /= all_sum) then
+       if (clone_myid() == 0) then
+          write(*,*) clone_myid(), "mothers:", all_sum, all_expected, all_sum - all_expected
+       end if
+       call printit("face_scatter mothers", (all_sum ==  all_expected), my_dt)
     end if
-    call printit("face_scatter mothers", (all_sum ==  all_expected), my_dt)
     deallocate(values)
   end subroutine faces_scatter
 end module tests

@@ -8,10 +8,6 @@ option(EP_MPI "Build targets with MPI integration;" "ON")
 option(EP_SANITIZE "Add address sanitizer flag;" "ON")
 option(EP_GZ "Enable GZ file reading in PIO;" "ON")
 
-# unimplemented options
-option(EP_HDF5 "Build targets with HDF5 integration; not implemented yet" "OFF")
-option(EP_OPENMP "Build targets with OpenMP integration; not implemented yet" "OFF")
-
 # Specify default build
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Buld type")
 
