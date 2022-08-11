@@ -4,20 +4,22 @@ module fakemesh
   use mesh_types, only: mesh_t
   use mesh_state_types, only: mesh_state_frac_core_t
   use clone_lib_module, only: clone_myid
+  use binreader
+  
   implicit none
   public
   public fakemesh_t
   type :: fakemesh_t
-     integer :: ID = 1
+     type(binfile) :: bfp
      integer :: mpi_id
      integer :: nprocs
      type(mesh_t) :: m
      type(mesh_state_frac_core_t) :: frac_core
    contains
-     procedure :: init_PIO_faces
-     procedure :: init_PIO_frac_core
-     procedure :: init_from_PIO
-     procedure :: release_PIO
+     procedure :: init_faces
+     procedure :: init_frac_core
+     procedure :: init
+     procedure :: release
 
   end type fakemesh_t
 
@@ -28,87 +30,86 @@ module fakemesh
   end interface read_and_clone
      
 contains
-  subroutine read_and_clone_r64(array, name, pioid, iStart, nCount, index)
+  subroutine read_and_clone_r64(array, name, bfp, iStart, nCount, index)
     use iso_c_binding, only: c_int
     use iso_fortran_env, only: REAL64, INT64
     use clone_lib_module, only: clone_get
-    use pio_interface
     implicit none
     real(REAL64), intent(out) :: array(:)
     character(len=*), intent(in) :: name
-    integer, intent(in) :: pioid
+    type(binFile) :: bfp
     integer(INT64), intent(in) :: iStart, nCount
     integer, optional, intent(in) :: index
     real(REAL64), pointer :: tmp(:)
-    integer(c_int) :: i
+    character(len=32) :: suffix
 
     if ( present(index) ) then
-       i = index
+       write(suffix,*) index
+       suffix = '_' // trim(adjustl(suffix))
     else
-       i = 0
+       suffix = '_0'
     end if
 
-    tmp => pio_get_range_d(pioid, name, i, iStart, nCount)
+    tmp => bfp%read_f64(trim(name)//suffix, iStart, nCount)
     array(1:nCount) = tmp
-    call pio_release(tmp)
+    deallocate(tmp)
     call clone_get(array)
   end subroutine read_and_clone_r64
   
-  subroutine read_and_clone_i64(array, name, pioid, iStart, nCount, index)
+  subroutine read_and_clone_i64(array, name, bfp, iStart, nCount, index)
     use iso_c_binding, only: c_int, c_int64_t
     use iso_fortran_env, only: INT64
-    use pio_interface
     use clone_lib_module, only: clone_get
     implicit none
     integer(INT64), intent(out) :: array(:)
     character(len=*), intent(in) :: name
-    integer, intent(in) :: pioid
+    type(binFile) :: bfp
     integer(INT64), intent(in) :: iStart, nCount
     integer, optional, intent(in) :: index
     integer(c_int64_t), pointer :: tmp(:)
-    integer(c_int) :: i
+    character(len=32) :: suffix
 
     if ( present(index) ) then
-       i = index
+       write(suffix,*) index
+       suffix = '_' // trim(adjustl(suffix))
     else
-       i = 0
+       suffix = '_0'
     end if
 
-    tmp => pio_get_range_i64(pioid, name, i, iStart, nCount)
+    tmp => bfp%read_i64(trim(name)//suffix, iStart, nCount)
     array(1:nCount) = tmp
-    call pio_release(tmp)
+    deallocate(tmp)
     call clone_get(array)
   end subroutine read_and_clone_i64
   
-  subroutine read_and_clone_i32(array, name, pioid, iStart, nCount, index)
-    use iso_c_binding, only: c_int, c_int64_t
+  subroutine read_and_clone_i32(array, name, iStart, nCount, index)
+    use iso_c_binding, only: c_int32_t, c_int64_t, c_double
     use iso_fortran_env, only: INT64
-    use pio_interface
     use clone_lib_module, only: clone_get
     implicit none
     integer, intent(out) :: array(:)
     character(len=*), intent(in) :: name
-    integer, intent(in) :: pioid
+    type(binFile) :: bfp
     integer(INT64), intent(in) :: iStart, nCount
     integer, optional, intent(in) :: index
-    integer(c_int64_t), pointer :: tmp(:)
-    integer(c_int) :: i
+    real(c_double), pointer :: tmp(:)
+    character(len=32) :: suffix
 
     if ( present(index) ) then
-       i = index
+       write(suffix,*) index
+       suffix = '_' // trim(adjustl(suffix))
     else
-       i = 0
+       suffix = '_0'
     end if
 
-    tmp => pio_get_range_i64(pioid, name, i, iStart, nCount)
-    array(1:nCount) = tmp
-    call pio_release(tmp)
+    tmp => bfp%read_f64(trim(name)//suffix, iStart, nCount)
+    array(1:nCount) = int(tmp)
+    deallocate(tmp)
     call clone_get(array)
   end subroutine read_and_clone_i32
   
-  subroutine init_PIO_frac_core(self, iStart, nCount)
+  subroutine init_frac_core(self, iStart, nCount)
     ! Initialize the frac_core values from file
-    use pio_interface
     use define_kind, only: INT64
     implicit none
     class(fakemesh_t) :: self
@@ -116,7 +117,7 @@ contains
     
     ASSOCIATE(                        &
          m => self%m,                 &
-         pioid => self%ID,            &
+         bfp => self%bfp,            &
          cells => self%m%cells,       &
          faces => self%m%faces,       &
          nprocs => self%nprocs,       &
@@ -129,22 +130,21 @@ contains
          !loCell =>  pio_get_range_i64(self%id, "cell_index", 2 * idim - 1, iStart, nCount)
 
          ! Get the material counts
-         frac_core%vol%obj = pio_get_range_matvar(self%ID, "chunk_vol", 0_INT64, nCount) 
+         !SS frac_core%vol%obj = pio_get_range_matvar(self%ID, "chunk_vol", 0_INT64, nCount) 
 
          
     END ASSOCIATE
       
     
-  end subroutine init_PIO_frac_core
+  end subroutine init_frac_core
 
-  subroutine release_PIO(self)
+  subroutine release(self)
     use mesh_types, only: release_mesh
-    use pio_interface
     implicit none
     class(fakemesh_t) :: self
     call release_mesh(self%m)
-    call pio_release(self%ID)
-  end subroutine release_PIO
+    call self%bfp%release()
+  end subroutine release
 
   subroutine allocate_mesh_scalars(m)
     use iso_c_binding
@@ -168,66 +168,49 @@ contains
 
   end subroutine allocate_mesh_scalars
 
-  function gen_partition(ID, ndim, ncell, nprocs, myID, iStart, nCount) result(values)
+  function gen_partition(bfp, nprocs, myID, iStart, nCount) result(values)
     ! If nprocs matches number in file, return original partition, otherwise
     ! generate a new partition based on blocks
     use iso_c_binding
-    use pio_interface
     implicit None
-    integer, intent(in) :: ID, ndim
+    type(binFile) :: bfp
     integer(c_int64_t), dimension(:), pointer :: values
-    integer(c_int64_t), intent(in) :: ncell
     integer, intent(in) :: nprocs, myID
     integer(c_int64_t), intent(out) :: iStart, nCount
 
-    integer :: oldprocs
     integer(c_int64_t), parameter :: one = 1
     integer(c_int64_t) :: nBlocks, i, blockSize
-    integer(c_int64_t), dimension(:), pointer :: oldvalues
     real(c_double) :: quantum, next
+    integer(c_INT64_t) :: ndim, ncell
+
+    ndim = bfp%ndim
+    ncell = bfp%ncells
 
 
     allocate(values(0:nprocs))
-    oldprocs = pio_length(ID, "global_numcell")
-    if (oldprocs == nprocs ) then
-       oldvalues => pio_get_i64(ID, "global_numcell", 0)
-       values(0) = 1
-       do i = 1, nprocs
-          values(i) = oldvalues(i) + values(i-1)
-       end do
-       call pio_release(oldvalues)
-    else
-       blockSize = 2 ** ndim
-       nBlocks = ncell / blockSize
+    blockSize = 2 ** ndim
+    nBlocks = ncell / blockSize
+    
+    quantum = real(nBlocks, kind=c_double) / real(nprocs, kind=c_double)
+    
+    do i = 0, nprocs-1
+       next = quantum * real(i,kind=c_double)
+       values(i) = one + blockSize * int(next, kind=c_int64_t)
+    end do
+    values(nprocs) = ncell + 1
 
-       quantum = real(nBlocks, kind=c_double) / real(nprocs, kind=c_double)
-
-       do i = 0, nprocs-1
-          next = quantum * real(i,kind=c_double)
-          values(i) = one + blockSize * int(next, kind=c_int64_t)
-       end do
-       values(nprocs) = ncell + 1
-    end if
     iStart = values(myID) 
     nCount = values(myID+1) - values(myID)
-    ! if (myID == 0) then
-    !    write(*,*) 'MPI Partitioning:'
-    !    do i = 0, nprocs-1
-    !       write(*, *) i, values(i), values(i+1), values(i+1) - values(i)
-    !    end do
-    !    write(*,*) '---------------'
-    ! end if
 
   end function gen_partition
 
-  subroutine init_PIO_faces(self, iStart, nCount, nbrs)
-    ! initialize faces from piofile
+  subroutine init_faces(self, iStart, nCount, nbrs)
+    ! initialize faces
     ! Missing low side coarse on high boundary faces
     use define_kind, only: LO_SIDE, HI_SIDE
     use mem_release, only: release
     use iso_c_binding
     use clone_lib_module, only: clone_myid
-    use pio_interface
     class(fakemesh_t) :: self
     integer(c_int64_t), intent(in) :: iStart, nCount
     integer(c_int64_t), intent(in), dimension(:,:) :: nbrs
@@ -426,30 +409,30 @@ contains
       end if
     end function get_face_type
     
-  end subroutine init_PIO_faces
+  end subroutine init_faces
   
-  subroutine init_from_PIO(self, piofile, mpinprocs, mpiid)
-    ! Initializes a mesh from a PIO file
+  subroutine init(self, myfile, mpinprocs, mpiid)
     use iso_fortran_env, only: INT64, REAL64
+    use iso_c_binding
     use clone_lib_module, only: mycomm, clone_get, clone_base_init, clone_init, clone_barrier
-    use pio_interface
     implicit none
 
     class(fakemesh_t) :: self
-    character(len=*) :: piofile
+    character(len=*) :: myfile
     integer, intent(in), optional :: mpinprocs
     integer, intent(in), optional :: mpiid
     integer(c_int64_t), pointer, dimension(:) :: daughter
     integer(c_int64_t), pointer, dimension(:) :: mylevel
-    integer(c_int64_t) :: i, j, iStart, nCount, myProcs, nCell, iCell, iNbr, myNbr
+    integer(c_int64_t) :: i, j, iStart, nCount, myProcs, nCell, iNbr, myNbr
     integer :: nprocs, myid, ndim, iTmp, iDim
     real(c_double), pointer, dimension(:) :: tmp_d
     integer(c_int64_t), dimension(:), pointer :: lo_cell, hi_cell
     integer(c_int64_t), dimension(:), pointer :: amhc_i
     real(c_double), pointer, dimension(:,:) :: cell_hi_lo
-    integer(INT64), allocatable, dimension(:,:) :: nbrs
+    integer(INT64), pointer, dimension(:,:) :: nbrs
     integer(INT64), parameter :: offset_n(3) = (/1,2,4/)
     integer(c_int64_t) :: iEnd
+    character(len=128) :: tmpChar1
 
 
     !*-- Get the MPI numprocs and our processor ID
@@ -469,18 +452,14 @@ contains
     self%mpi_id = myid
     self%nprocs = nprocs
     
-    ASSOCIATE( m => self%m, pioid => self%id )
+    ASSOCIATE( m => self%m )
 
       
-      !*-- Initialize the PIO class
-      if (myid == 0) write(*,*) 'reading PIO: ', piofile
-
-      !*-- initialize a bare "parallel" PIO struct
-      call pio_init_par(pioid, piofile, 0, 1, mycomm)
+      call self%bfp%init(myfile)
       
       !*-- Read in the total number of cells and dimensions
-      nCell = pio_ncell(pioid)
-      ndim = pio_ndim(pioid)
+      nCell = self%bfp%nCells
+      ndim = self%bfp%nDim
       
       !*-- Allocate scalars in mesh data structure
       call allocate_mesh_scalars(m)
@@ -490,7 +469,7 @@ contains
 
       !*-- Generate the MPI partitioning, and current PE's iStart and nCount
       m%cells%cell_address => &
-           gen_partition(PIOID, ndim, nCell, nprocs, myID, iStart, nCount)
+           gen_partition(self%bfp, nprocs, myID, iStart, nCount)
       iEnd = iStart + nCount -1
 
       !SS call pio_init_materials(pioid, iStart, nCount)
@@ -502,24 +481,12 @@ contains
       m%cells%max_numcell = nCount
 
       !*-- Read in neighbors for face and clone processing
-      allocate(nbrs(nCount, 2 * ndim))
-      nbrs = -20
-      do idim = 1, ndim
-         lo_Cell => pio_get_range_i64(self%id, "cell_index", 2 * idim - 1, iStart, nCount)
-         nbrs(1:nCount,2 * idim - 1) = lo_Cell(1:nCount)
-         call pio_release(lo_Cell)
-         nullify(lo_Cell)
-
-         hi_Cell => pio_get_range_i64(self%id, "cell_index", 2 * idim, iStart, nCount)
-         nbrs(1:nCount,2 * idim) = hi_Cell(1:nCount)
-         call pio_release(hi_Cell)
-         nullify(hi_Cell)
-      end do
+      nbrs => self%bfp%read_i64_2d("cell_index", 2 * ndim, iStart, nCount)
 
       iEnd = iStart + nCount - 1
       !*-- Count number of top level cells
       ! Fix neighbors array for refined neighbors
-      m%levels%cell_daughter => pio_get_range_i64(self%id, "cell_daughter", 0, iStart, nCount)
+      m%levels%cell_daughter => self%bfp%read_i64("cell_daughter_0", iStart, nCount)
       daughter => m%levels%cell_daughter
       m%levels%numtop = 0
       m%levels%allnumtop = 0
@@ -531,7 +498,8 @@ contains
                iNbr = nbrs(i, 2*iDim-1)
                myNbr = iNbr - iStart + 1
                if (iNbr >= iStart .and. iNbr <= iEnd) then
-                  if (daughter(myNbr) > 0 ) then
+                  if (clone_myid() == 0 .and. daughter(myNbr) > 0 ) then
+                     write(*,*) clone_myid(), 'lonbr: ', i, iNbr, daughter(myNbr), iStart, nCount
                      nbrs(i,2*iDim-1) = daughter(myNbr) + offset_n(iDim)
                   end if
                end if
@@ -540,7 +508,8 @@ contains
                iNbr = nbrs(i, 2*iDim)
                myNbr = iNbr - iStart + 1
                if (iNbr >= iStart .and. iNbr <= iEnd) then
-                  if (daughter(myNbr) > 0) then
+                  if (clone_myid() == 0 .and. daughter(myNbr) > 0) then
+                     write(*,*) clone_myid(), 'hinbr: ', i, iNbr, daughter(myNbr), iStart, nCount
                      nbrs(i,2*iDim) = daughter(myNbr)
                   end if
                end if
@@ -559,19 +528,19 @@ contains
       end do
 
       !*-- initialize clones
-      call clone_init(self%m, nbrs, pioID)
+      call clone_init(self%m, nbrs, self%bfp)
 
       call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done initializing, reading data'
       !*-- Update cell centers
       allocate(m%cells%cell_center(m%cells%numcell_clone, ndim))
       do iDim = 1, ndim
-         call read_and_clone(m%cells%cell_center(:,iDim), "cell_center", self%id, iStart, nCount, iDim)
+         call read_and_clone(m%cells%cell_center(:,iDim), "cell_center", self%bfp, iStart, nCount, iDim)
       end do
       
       !*-- Update volumes
       allocate(m%cells%vcell(m%cells%numcell_clone))
-      call read_and_clone(m%cells%vcell, "vcell", self%id, iStart, nCount)
+      call read_and_clone(m%cells%vcell, "vcell", self%bfp, iStart, nCount)
 
       !*-- Set high and low half volumes assuming cartesian grid
       allocate(m%cells%cell_half_hi(m%cells%numcell_clone, ndim))
@@ -582,16 +551,16 @@ contains
       end do
 
       !*-- update the mesh state variables
-      !SS call self%init_PIO_frac_core(iStart, nCount)
+      !SS call self%init_frac_core(iStart, nCount)
       
       if (myid == 0 ) write(*,*) 'Done reading data, initializing faces'
-      call self%init_PIO_faces(iStart, nCount, nbrs)
+      call self%init_faces(iStart, nCount, nbrs)
       deallocate(nbrs)
 
       call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done initializing faces'
     END ASSOCIATE
-  end subroutine init_from_PIO
+  end subroutine init
 
 end module fakemesh
 

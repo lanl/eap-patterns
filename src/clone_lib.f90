@@ -287,11 +287,13 @@ contains
     call MPI_FINALIZE(i)
 #endif
     ! Deallocate data structure
-    do i = 1, n_nodes
-       if (allocated(nodes(i)%send_id)) deallocate(nodes(i)%send_id)
-       if (allocated(nodes(i)%recv_map)) deallocate(nodes(i)%recv_map)
-    end do
-    deallocate(nodes)
+    if (allocated(nodes)) then
+       do i = 1, n_nodes
+          if (allocated(nodes(i)%send_id)) deallocate(nodes(i)%send_id)
+          if (allocated(nodes(i)%recv_map)) deallocate(nodes(i)%recv_map)
+       end do
+       deallocate(nodes)
+    end if
     return
   end subroutine clone_exit
 
@@ -429,18 +431,18 @@ contains
     
   end subroutine update_nbrs_and_get_clone_map
 
-  subroutine clone_update_AMR_boundary(m, nbrs, clone_map, pioid)
+  subroutine clone_update_AMR_boundary(m, nbrs, clone_map, bfp)
     ! Addes additional clones to cells that lie
     ! on the boundary
+    use binreader, only: binfile
     use iso_fortran_env, only: INT64
     use mesh_types, only: mesh_t
-    use pio_interface, only: pio_get_range_i64, pio_release
     implicit none
 
     type(mesh_t) :: m
     integer(INT64) :: nbrs(:,:)
     integer(INT64), allocatable, intent(in) :: clone_map(:)
-    integer, intent(in) :: pioid
+    type(binFile) :: bfp
     
     ! magic offsets for xRage mesh
     integer, parameter :: offsets(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
@@ -484,11 +486,14 @@ contains
       !* The cell levels will be overridden with final numbers at the end
 
       ! Read in cell level from the PIO file and populate m%levels%cell_level(1:numcell)
-      tmp_cell => pio_get_range_i64(pioid, "cell_level", 0, partition(g_myid), &
+      tmp_cell => bfp%read_i64("cell_level_0", partition(g_myid), &
            partition(g_myid+1)-partition(g_myid))
+      if (associated(m%levels%cell_level)) then
+         deallocate(m%levels%cell_level)
+      end if
       allocate(m%levels%cell_level(numcell_clone))
       m%levels%cell_level(1:numcell) = tmp_cell
-      call pio_release(tmp_cell)
+      deallocate(tmp_cell)
 
       ! Fill in the clone cell levels
       call clone_get(m%levels%cell_level)
@@ -505,7 +510,7 @@ contains
       nullify(m%levels%cell_daughter)
       allocate(m%levels%cell_daughter(numcell_clone))
       m%levels%cell_daughter(1:numcell) = tmp_cell(1:numcell)
-      call pio_release(tmp_cell)
+      deallocate(tmp_cell)
       ! Fill in the clone cell daughters
       call clone_get(m%levels%cell_daughter)
       daughter => m%levels%cell_daughter
@@ -561,9 +566,13 @@ contains
             iNbr = nbrs(iCell, 2 * iDim)
             if ((iNbr > numcell) .and. (m%levels%cell_level(iNbr) > m%levels%cell_level(iCell))) then
                iNbr = iNbr - numcell
-               iProc = node_map(iNbr + numcell)
+               iProc = node_map(iNbr)
                node_count(iNode) = node_count(iNode) + n_shift ! new count of cells on processor
                n_additional = n_additional + n_shift           ! Number of new clones
+               if (iNbr > size(clone_map,1) .or. iProc < 0 .or. iProc >= g_nprocs) then
+                  write(*,*) g_myid, '_______PROBLEM?', iProc, g_nprocs, node_map(iNbr+numcell), iNbr, size(clone_map)
+                  call flush()
+               end if
                iBase = clone_map(iNbr) - partition(iProc) + 1
                sister_clones(1:n_shift, iNbr) = iBase + offsets(1:n_shift, iDim)
                ! Clones higher than iNbr have to be shifted
@@ -695,7 +704,7 @@ contains
       nullify(m%levels%cell_daughter)
       allocate(m%levels%cell_daughter(m%cells%numcell_clone))
       m%levels%cell_daughter(1:m%cells%numcell) = daughter(1:m%cells%numcell)
-      call pio_release(daughter)
+      deallocate(daughter)
       call clone_get(m%levels%cell_daughter)
 
       ! Deallocate memory that was used for MPI buffers
@@ -723,15 +732,16 @@ contains
 
   end subroutine clone_update_AMR_boundary
 
-  subroutine clone_init(m, nbrs, pioid)
+  subroutine clone_init(m, nbrs, bfp)
     ! Initializes the clone arrays and
     ! fixes the neighboring cell IDs 
     use iso_fortran_env, only: INT64
     use mesh_types, only: mesh_t
+    use binreader, only: binfile
     implicit none
     type(mesh_t), intent(inout) :: m
-    integer(INT64), allocatable :: nbrs(:,:)
-    integer, intent(in) :: pioid
+    integer(INT64), pointer :: nbrs(:,:)
+    type(binFile) :: bfp
     integer :: l, nprocs, ierror
     integer :: iDim, iProc, iNode, iTmp, iNow, index
     integer(INT64) :: id_lo, id_hi, iCell, iStart, iEnd
@@ -880,7 +890,7 @@ contains
 
 
       ! Now update clone ids for AMR transfers
-      call clone_update_AMR_boundary(m, nbrs, clone_map, pioid)
+      call clone_update_AMR_boundary(m, nbrs, clone_map, bfp)
       
       deallocate(clone_map)
     END ASSOCIATE

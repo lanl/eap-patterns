@@ -32,8 +32,8 @@ subroutine testme(fm)
 end subroutine testme
 program test
   use iso_fortran_env, only: REAL64, INT64
-  use pio_interface, only: pio_now
   use fakemesh
+  use binreader, only: binfile_verify_signature
   use mesh_state_types
   use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs, &
        clone_reduce, CLONE_SUM, clone_barrier
@@ -52,8 +52,13 @@ program test
   ! Get the filename
   call GET_COMMAND_ARGUMENT(1, fname)
 
+  if (.not. binfile_verify_signature(fname)) then
+     write(*,*) '_______ERROR: ', trim(fname), ' is not an EAP-bin file'
+     return
+  end if
+
 #ifdef ENABLE_MPI
-  call fm%init_from_PIO(trim(fname))
+  call fm%init(trim(fname))
   myid = clone_myid()
   nprocs = clone_nprocs()
 #else
@@ -63,14 +68,16 @@ program test
   else
      nprocs = 1
   end if
-  call fm%init_from_PIO(trim(fname), nprocs, myid)
+  myid = 0
+  call fm%init(trim(fname), nprocs, myid)
 #endif
   
     n_iter = 1
     call test_driver(fm%m, n_iter)
-    
+
+    call clone_barrier()
     if (myid == 0) write(*,*) 'releasing'
-    call fm%release_PIO()
+    call fm%release()
     call clone_exit()
 
 end program test

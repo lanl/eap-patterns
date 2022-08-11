@@ -2,9 +2,8 @@
 # CMakeLists.txt for EAP Patterns
 ######################################
 cmake_minimum_required(VERSION 3.16.0)
-project(mygrad LANGUAGES Fortran CXX C)
+project(mygrad LANGUAGES Fortran C)
 
-option(EP_PIO "Build targets with PIO integration;" "ON")
 option(EP_MPI "Build targets with MPI integration;" "ON")
 option(EP_SANITIZE "Add address sanitizer flag;" "ON")
 option(EP_GZ "Enable GZ file reading in PIO;" "ON")
@@ -18,6 +17,7 @@ set(CMAKE_BUILD_TYPE Release CACHE STRING "Buld type")
 
 # Specify sources
 set(F90_SOURCES
+  src/binReader.f90
   src/clone_lib.f90
   src/clone_reduce.f90
   src/define_kind.f90 
@@ -30,10 +30,10 @@ set(F90_SOURCES
   src/util.f90
   )
 
-set_source_files_properties(
-  file1.fpp file2.fpp
-  PROPERTIES Fortran_PREPROCESS ON
-)
+set(C_SOURCES
+  src/fileUtils.c
+  )
+
 set_source_files_properties(
   ${F90_SOURCES}
   PROPERTIES Fortran_PREPROCESS ON
@@ -46,40 +46,15 @@ if (EP_SANITIZE )
   if ("${CMAKE_C_COMPILER_ID}" EQUAL "GNU")
     set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} " -fsanitize=address ")
   endif()
-  if ("${CMAKE_CXX_COMPILER_ID}" EQUAL "GNU")
-    set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} " -fsanitize=address ")
-  endif()
-endif ()
-# set(CMAKE_Fortran_FLAGS ${CMAKE_Fortran_FLAGS} " -fsanitize=address -DEP_PIO ")
-
-if ( EP_PIO )
-  set(C_HEADERS ${C_HEADERS}
-    dependency/piotools/pioParallelUtils.h
-    )
-  set(C_SOURCES ${C_SOURCES}
-    dependency/piotools/pioParallelUtils.c
-    )
-  set(CXX_SOURCES ${CXX_SOURCES}
-    dependency/piotools/pioInterface.cpp
-    )
-  set(CXX_HEADERS ${CXX_HEADERS}
-    dependency/piotools/pioInterface.hpp
-    dependency/piotools/pio.hpp
-    )
-  set(F90_SOURCES ${F90_SOURCES}
-    dependency/piotools/pio_interface.F90
-    )
-  
-  set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -DEP_PIO=1 ")
-  
 endif ()
 
-add_executable(mygrad ${F90_SOURCES} ${CXX_SOURCES} ${C_SOURCES} ${CXX_HEADERS} ${C_HEADERS})
+
+add_executable(mygrad ${F90_SOURCES} ${C_SOURCES} )
 set_property(TARGET mygrad PROPERTY LINKER_LANGUAGE Fortran)
 
 if ( EP_GZ )
   find_package(ZLIB REQUIRED)
-  set(CMAKE_CXX_FLAGS " ${CMAKE_CXX_FLAGS} -DENABLE_GZ=1 ")
+  set(CMAKE_C_FLAGS " ${CMAKE_C_FLAGS} -DENABLE_GZ=1 ")
   include_directories(${ZLIB_INCLUDE_DIRS})
   target_link_libraries(mygrad ${ZLIB_LIBRARIES})
 endif ()
@@ -102,6 +77,5 @@ if ( EP_MPI )
 
   # PIO mpi flag
   set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -DENABLE_MPI=1 ")
-  set(CMAKE_CXX_FLAGS " ${CMAKE_CXX_FLAGS} -DENABLE_MPI=1 ")
   set(CMAKE_C_FLAGS " ${CMAKE_C_FLAGS} -DENABLE_MPI=1 ")
 endif()

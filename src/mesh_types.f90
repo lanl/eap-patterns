@@ -1,4 +1,5 @@
 module timer_module
+  implicit none
   public
 contains
   subroutine timerset(val, key)
@@ -10,10 +11,24 @@ contains
   end subroutine timerset
 end module timer_module
 
+
 module mesh_state_types
+  use iso_c_binding
   use define_kind
-  use pio_interface, only: pio_2d_t
+
+  implicit none
+
   public
+
+  type :: ep_ptr_d_t
+     real(c_double), pointer, dimension(:) :: p
+  end type ep_ptr_d_t
+
+  type :: ep_2d_t
+     type(c_ptr) :: base
+     type(ep_ptr_d_t), dimension(:), pointer :: data
+  end type ep_2d_t
+
   
   type mesh_state_core_t
      real(REAL64), dimension(:), pointer :: rho => null()
@@ -21,7 +36,7 @@ module mesh_state_types
   type mesh_state_frac_var_t
      integer :: nmat
      integer :: ncells
-     type(pio_2d_t) :: obj
+     type(ep_2d_t) :: obj
   end type mesh_state_frac_var_t
   type mesh_state_frac_core_t
      type(mesh_state_frac_var_t) :: mass
@@ -201,7 +216,6 @@ module mesh_types
   end type mesh_t
   contains
     subroutine release_mesh(m)
-      use pio_interface, only: pio_release
       use mem_release, only: release
       type(mesh_t) :: m
       if (allocated(m%cells)) then
@@ -228,6 +242,11 @@ module mesh_types
       if (allocated(m%levels)) then
          ! Release levels
          call release(m%levels%cell_daughter)
+         call release(m%levels%cell_level)
+         call release(m%levels%numtop)
+         call release(m%levels%allnumtop)
+         call release(m%levels%ltop)
+         call release(m%levels%alltop)
          deallocate(m%levels)
       end if
       if (allocated(m%faces)) then
@@ -239,6 +258,15 @@ module mesh_types
          call release(m%faces%face_id)
          call release(m%faces%face_local)
          deallocate(m%faces)
+      end if
+      if(allocated(m%neighbors)) then
+         deallocate(m%neighbors)
+      end if
+      if(associated(m%sim)) then
+         deallocate(m%sim)
+      end if
+      if(allocated(m%amr_vars)) then
+         deallocate(m%amr_vars)
       end if
     end subroutine release_mesh
     subroutine nullify_mesh(m)

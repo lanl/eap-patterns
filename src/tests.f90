@@ -2,10 +2,17 @@ module tests
   ! Tests of cell based loops
   use iso_fortran_env, only: INT64, REAL64
   use clone_lib_module, only: clone_barrier, clone_reduce, CLONE_SUM, CLONE_MAX, clone_myid
-  use pio_interface, only: pio_now
   public
   integer, private :: myid
 contains
+
+  real(REAL64) function now()
+    integer(INT64) :: c_now
+    real(REAL64) :: c_rate
+    call system_clock(c_now, c_rate)
+    now = real(c_now, REAL64) / c_rate
+  end function now
+    
   subroutine test_driver(m, n_iter)
     use mesh_types, only: mesh_t
     use clone_lib_module, only: clone_myid
@@ -64,7 +71,7 @@ contains
     ! Run the loop
     my_sum = 0.0_REAL64
     call clone_barrier()
-    my_dt = pio_now() 
+    my_dt = now() 
     call clone_barrier()
     do i = 1, n_iter
        local_sum = 0.0_REAL64
@@ -77,7 +84,7 @@ contains
        my_sum = my_sum + partial_result
     end do
     call clone_barrier()
-    my_dt = pio_now() - my_dt
+    my_dt = now() - my_dt
 
     ! Report the results
     if (myid == 0) then
@@ -112,7 +119,7 @@ contains
     faces_on_pe_boundary = 0
     global_faces_by_types = 0
     call clone_barrier()
-    my_dt = pio_now() 
+    my_dt = now() 
 
     do iDim = 1, m%sim%numdim
        ! for each dimension
@@ -151,7 +158,7 @@ contains
        call clone_reduce(global_faces_on_pe_boundary(iType), faces_on_pe_boundary(iType), CLONE_SUM)
     end do
     call clone_barrier()
-    my_dt = pio_now() - my_dt
+    my_dt = now() - my_dt
 
     ! Report the results
     if (myid == 0) then
@@ -185,7 +192,7 @@ contains
     values = 0.0d0
 
     call clone_barrier()
-    my_dt = pio_now()
+    my_dt = now()
     if (m%sim%numdim == 2) then
        my_T_sum = 0.5
     else if (m%sim%numdim == 3) then
@@ -238,7 +245,7 @@ contains
        end do
     end do
     call clone_barrier()
-    my_dt = pio_now() - my_dt
+    my_dt = now() - my_dt
 
     ! Check results for leaf cells
     allocate(mothers(m%cells%numcell_clone))
