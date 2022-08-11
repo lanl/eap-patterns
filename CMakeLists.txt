@@ -75,3 +75,15 @@ if ( EP_MPI )
   set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -DENABLE_MPI=1 ")
   set(CMAKE_C_FLAGS " ${CMAKE_C_FLAGS} -DENABLE_MPI=1 ")
 endif()
+
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT supported OUTPUT error)
+
+if( supported )
+    message(STATUS "IPO / LTO enabled")
+    set_property(TARGET mygrad PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+    message(STATUS "IPO / LTO not supported: <${error}>")
+endif()
+
