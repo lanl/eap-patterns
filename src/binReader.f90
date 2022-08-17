@@ -12,6 +12,7 @@ module binreader
   
   type :: variable_t
      character(len=128) :: name
+     integer(INT64) :: size
      integer(INT64) :: offset
   end type variable_t
 
@@ -23,6 +24,8 @@ module binreader
      integer(c_int64_t) :: fp
    contains
      procedure :: init => binfile_init
+     procedure :: read_raw_i8 => binfile_read_raw_i8
+     procedure :: read_raw_i64 => binfile_read_raw_i64
      procedure :: read_i64 => binfile_read_i64
      procedure :: read_i64_2d => binfile_read_i64_2
      procedure :: read_f64 => binfile_read_f64
@@ -112,21 +115,72 @@ contains
 
     BLOCK
       character(len=vLen), target :: tmpname
-      integer(INT64), target :: tmpoffset
+      integer(INT64), target :: tmpOffset, tmpSize
       integer :: ivar
       
       do ivar = 1, this%nVars
          call readIt(c_loc(tmpName), this%fp, offset, vLen)
          offset = offset + vLen
-         call readIt(c_loc(tmpoffset), this%fp, offset, 8_INT64)
+         call readIt(c_loc(tmpSize), this%fp, offset, 8_INT64)
+         offset = offset + 8
+         call readIt(c_loc(tmpOffset), this%fp, offset, 8_INT64)
          offset = offset + 8
          this%vars(ivar)%name = tmpname
-         this%vars(ivar)%offset = tmpoffset
+         this%vars(ivar)%size = tmpSize
+         this%vars(ivar)%offset = tmpOffset
       end do
     END BLOCK
 
   END subroutine binfile_init
 
+  subroutine binfile_read_raw_i8_2(this, outPtr, var, iStart, nCount, n2)
+    ! different from other reads in that it reads i8 variable
+    implicit none
+    class(binfile) :: this
+    integer(INT8), pointer, dimension(:,:), intent(out) :: outPtr
+    integer(INT8), parameter :: isize = 1
+    character(len=*), intent(in) :: var
+    integer(INT64), intent(in) :: iStart, nCount, n2
+    integer(INT64), target :: myStart, myBytes, myN
+
+    do i =1, this%nvars
+       if (var == this%vars(i)%name) then
+          myN = nCount
+          myStart = this%vars(i)%offset + (iStart - 1) * integer(c_sizeof(isize), kind=INT64)
+          myBytes = myN * integer(c_sizeof(isize), kind=INT64)
+          if (.not. associated(outPtr)) then
+             allocate(outPtr(myN))
+          end if
+          call readIt(c_loc(outPtr), this%fp, myStart, myBytes)
+          exit
+       end if
+    end do
+  end subroutine binfile_read_raw_i8
+
+  subroutine binfile_read_raw_i64(this, outPtr, var, iStart, nCount)
+    ! different from other reads in that it reads i8 variable
+    implicit none
+    class(binfile) :: this
+    integer(INT64), pointer, dimension(:), intent(out) :: outPtr
+    integer(INT64), parameter :: isize = 1
+    character(len=*), intent(in) :: var
+    integer(INT64), intent(in) :: iStart, nCount
+    integer(INT64), target :: myStart, myBytes, myN
+
+    do i =1, this%nvars
+       if (var == this%vars(i)%name) then
+          myN = nCount
+          myStart = this%vars(i)%offset + (iStart - 1) * integer(c_sizeof(isize), kind=INT64)
+          myBytes = myN * integer(c_sizeof(isize), kind=INT64)
+          if (.not. associated(outPtr)) then
+             allocate(outPtr(myN))
+          end if
+          call readIt(c_loc(outPtr), this%fp, myStart, myBytes)
+          exit
+       end if
+    end do
+  end subroutine binfile_read_raw_i64
+  
   function binfile_read_i64(this, var, iStart, nCount) result(read_i64)
     implicit none
     real(c_double), pointer, dimension(:) :: tmpPtr

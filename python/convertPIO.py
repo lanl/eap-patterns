@@ -27,10 +27,12 @@ bytes   kind   what
 8       int64  number of variables
 
 nLen    char   name of variable 1
-8       int64  offset
+8       int64  element size 1
+8       int64  offset 1
 
 nLen    char   name of variable 2
-8       int64  offset
+8       int64  element size 2
+8       int64  offset 2
 
 ....
 
@@ -57,21 +59,27 @@ import re
 import struct
 
 
+def getFaceType(index, iCell, iNbr, level):
+    if iCell == iNbr:
+        iType = 1 + index%2
+    elif level[iNbr] > level[iCell]:
+        iType = 4 + index%2
+    else:
+        iType = 3
+    return iType
+        
 def convertPIO(fname, outfile, verbose=False):
 
-    myNames = re.compile("cell_center_" +
-                         "|cell_daughter_" +
-                         "|cell_index_" +
-                         "|cell_level_" +
-                         "|vcell_")
     p = pio(fname)
 
+    cell_level = p.readArray("cell_level_0").astype(np.int32)
     daughter = p.readArray("cell_daughter_0").astype(np.int64)
     offsets = [1,0,2,0,4,0]
 
     if(verbose):
         print(len(daughter),daughter)
-    nbrs = [None] * (2 * p.ndim)
+    nbrs = np.zeros((p.numcell, 2 * p.ndim), np.int64)
+    face_type = np.zeros((p.numcell,8), np.int8)
     for idx in range(2 * p.ndim):
         if(verbose):
             print(f"cell_index_{idx+1}")
@@ -83,16 +91,20 @@ def convertPIO(fname, outfile, verbose=False):
                 dtr = daughter[iNbr]
                 if dtr > 0:
                     a[iCell] = (daughter[iNbr] + offsets[idx])
+            face_type[iCell][idx] = getFaceType(idx, iCell, iNbr, cell_level)
 
-        nbrs[idx] = a.astype(np.double)
-    daughter = None
+        nbrs[:,idx] = a.astype(np.int64)
+
+    # variables we will write
+    sizeOf = {'i08': 1, 'i32':4, 'i64':8, 'f64':8}
     newNames = {}
+    newNames['cell_daughter'] = {'type':'i64', 'n':p.numcell}
+    newNames['cell_level'] = {'type':'i32', 'n':p.numcell}
+    newNames['cell_index'] = {'type':'i64', 'n':2 * p.ndim * p.numcell}
+    newNames['face_type'] = {'type':'i08', 'n':2 * p.ndim * p.numcell}
+    newNames['cell_center'] = {'type':'f64', 'n':p.ndim * p.numcell}
+    newNames['vcell'] = {'type':'f64', 'n':p.numcell}
     
-    for n in p.names:
-        m = myNames.match(n)
-        if m is not None:
-            newNames[n] = 0
-
     # Now to write the file
     with open(outfile,'wb') as ofp:
         if(verbose):
@@ -107,28 +119,52 @@ def convertPIO(fname, outfile, verbose=False):
         # Offset is current position + name list
         offset = ofp.tell() + ( p.lName + 8 ) * len(newNames)
 
-        # Write variable offsets
+        # Write variable offsets        
         if(verbose):
             print('   writing offsets')
         for n in newNames:
-            newNames[n] = offset
+            isz = sizeOf[newNames[n]['type']]
             ofp.write(f"{n:<{p.lName}}".encode())
+            ofp.write(struct.pack("q",isz))
             ofp.write(struct.pack("q",offset))
-            offset += 8 * p.numcell
+            offset += isz * newNames[n]['n']
 
         # Write data
+        if(verbose):
+            print('   writing variables')
         for n in newNames:
             if(verbose):
-                print('   writing: ',n.strip())
-            if n.startswith('cell_index_'):
-                idx = int(n.strip()[-1]) - 1
-                nbrs[idx].tofile(ofp)
+                print('   ',n)
+            if n == 'cell_center':
+                for idx in range(p.ndim):
+                    name = f'{n}_{idx+1:1}'
+                    if(verbose):
+                        print('    reading:',name)
+                    c = p.readArray(name)
+                    c.tofile(ofp)
+                    c = None
+            elif n == 'cell_daughter':
+                daughter.tofile(ofp)
+                daughter = None
+            elif n == 'cell_index':
+                nbrs.tofile(ofp)
+                nbrs = None
+            elif n == 'cell_level':
+                cell_level.tofile(ofp)
+            elif n == 'face_type':
+                face_type.tofile(ofp)
             else:
-                c = p.readArray(n)
+                # read from file
+                name = f'{n}_0'
+                if(verbose):
+                    print('    reading:',name)
+                c = p.readArray(name)
                 c.tofile(ofp)
+                c = None
 
         # Write variable data
-        trailer = "\nContents: eap-patterns-bin, 1(i64), ndim(i64), ncell(i64), name_len(i64), nVars(i64), list of names + offsets(i64), data(doubles)\n"
+        trailer = "\nContents: eap-patterns-bin, 1(i64), ndim(i64), ncell(i64), name_len(i64), nVars(i64), " + \
+            "list of names + element_size(i64) + offsets(i64), data(doubles)\n"
         ofp.write(trailer.encode())
 
         if(verbose):
