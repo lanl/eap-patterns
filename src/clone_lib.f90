@@ -177,12 +177,13 @@ contains
 
   subroutine clone_abort(message)
     implicit none
+    integer :: ierr
     character(len=*) :: message
     write(*,*) g_myid, '_____________ERROR ERROR ERROR________________'
     write(*,*) g_myid, message
     write(*,*) g_myid, '----------------------------------------------'
-#ifndef ENABLE_MPI
-    call MPI_Abort(mycomm, 1)
+#ifdef ENABLE_MPI
+    call MPI_Abort(mycomm, 1, ierr)
 #else
     stop 'Error!  See above.'
 #endif
@@ -319,132 +320,6 @@ contains
 #endif
   end subroutine clone_barrier
     
-  subroutine update_nbrs_and_get_clone_map(m, iStart, iEnd, nbrs, clone_map)
-    ! Counts m%cells%numcell_clone,
-    ! Changes nbrs to be range 1 - m%cells%numcell_clone
-    ! Updates m%allnumtop
-    ! Allocates and initializes m%alltop
-    ! initializes clone_map to map icell to real cell id
-
-    use iso_fortran_env, only: INT64
-    use iso_c_binding, only: c_int64_t
-    use mesh_types, only: mesh_t
-    implicit none
-    type(mesh_t), intent(inout) :: m
-    integer(c_int64_t), intent(in) :: iStart, iEnd
-    integer(INT64), intent(inout) :: nbrs(:,:)
-    integer(INT64), allocatable, intent(inout) :: clone_map(:)
-    integer(c_int64_t) :: id_nbr, iClone, id_new
-    integer :: iCell, nClones, iDim, iTmp
-    logical :: found
-
-    ! Get an upper bound on number of clones
-    nClones = 0
-    do iDim=1,m%sim%numdim
-       do iTmp=1,m%levels%numtop
-          iCell = m%levels%ltop(iTmp)
-          
-          ! Low side
-          id_nbr = nbrs(iCell, 2 * iDim - 1)
-          if (id_nbr < iStart .or. id_nbr > iEnd) then
-             nClones = nClones + 1
-          end if
-
-          ! High side
-          id_nbr = nbrs(iCell, 2 * iDim)
-          if (id_nbr < iStart .or. id_nbr > iEnd) then
-             nClones = nClones + 1
-          end if
-       end do
-    end do
-
-    ! nClones is now an upper bound on number of clones
-    if (allocated(clone_map)) deallocate(clone_map)
-    allocate(clone_map(nClones))
-
-    ! This loop converts nbrs array from absolute cell
-    ! number to local IDS running from 1 -> numcell_clone
-    !
-    ! The clone_map array will map local clone IDs (numcell+1 -> numcell_clone)
-    ! to global cell IDs primarily for processor identification purposes
-    !
-
-    iClone = 0
-    do iDim=1,m%sim%numdim
-       do iTmp=1,m%levels%numtop
-          
-          iCell = m%levels%ltop(iTmp)
-          
-          ! Low side
-          id_nbr = nbrs(iCell, 2 * iDim - 1)
-          if (id_nbr < iStart .or. id_nbr > iEnd) then
-             ! Off processor
-             call generate_clone_id(id_nbr, id_new, iClone, clone_map)
-             nbrs(iCell, 2 * iDim - 1) = id_new + m%cells%numcell
-          else
-             ! On processor
-             nbrs(iCell, 2 * iDim - 1) = id_nbr - iStart + 1
-          end if
-
-          ! High side
-          id_nbr = nbrs(iCell, 2 * iDim)
-          if (id_nbr < iStart .or. id_nbr > iEnd) then
-             ! Off processor
-             call generate_clone_id(id_nbr, id_new, iClone, clone_map)
-             nbrs(iCell, 2 * iDim ) = id_new + m%cells%numcell
-          else
-             ! On processor
-             nbrs(iCell, 2 * iDim) = id_nbr - iStart + 1
-          end if
-       end do
-    end do
-
-    ! Update numcell_clone, allnumtop, and alltop
-    m%cells%numcell_clone = iClone + m%cells%numcell
-    m%levels%allnumtop = m%levels%numtop + iClone
-    allocate(m%levels%alltop(m%levels%allnumtop))
-    m%levels%alltop(1:m%levels%numtop) = m%levels%ltop(1:m%levels%numtop)
-    do iCell = 1, iClone
-       m%levels%alltop(iCell + m%levels%numtop) = iCell + m%cells%numcell
-    end do
-
-  contains
-    pure subroutine generate_clone_id(old_clone_id, new_clone_id, the_count, the_clone_map)
-      ! Checks through the clone map to see if old_clone_id exists already.
-      ! If not, adds it to the_clone_map, increments the_count
-      use iso_fortran_env, only: INT64
-      implicit none
-
-      integer(INT64), intent(in)    :: old_clone_id
-      integer(INT64), intent(out)   :: new_clone_id
-      integer(INT64), intent(inout) :: the_count
-      integer(INT64), intent(inout) :: the_clone_map(:)
-      
-      integer :: j
-
-      new_clone_id = -1
-
-      ! Search backwards through the clone array
-      ! Must be a smarter way to do this.
-      ! This is an n^2 search.  
-      do j = the_count, 1, -1
-         if (the_clone_map(j) == old_clone_id) then
-            new_clone_id = j
-            exit
-         end if
-      end do
-
-      ! Increment the_count if we need to
-      if (new_clone_id < 0) then
-         the_count = the_count + 1
-         the_clone_map(the_count) = old_clone_id
-         new_clone_id = the_count
-      end if
-
-    end subroutine generate_clone_id
-    
-  end subroutine update_nbrs_and_get_clone_map
-
   subroutine clone_update_AMR_boundary(m, nbrs, clone_map, bfp)
     ! Addes additional clones to cells that lie
     ! on the boundary
@@ -500,15 +375,13 @@ contains
       !* The cell levels will be overridden with final numbers at the end
 
       ! Read in cell level from the PIO file and populate m%levels%cell_level(1:numcell)
-      tmp_cell => bfp%read_i64("cell_level_0", partition(g_myid), &
-           partition(g_myid+1)-partition(g_myid))
       if (associated(m%levels%cell_level)) then
          deallocate(m%levels%cell_level)
       end if
       allocate(m%levels%cell_level(numcell_clone))
-      m%levels%cell_level(1:numcell) = tmp_cell
-      deallocate(tmp_cell)
-
+      call bfp%read(m%levels%cell_level, "cell_level",  partition(g_myid), &
+           partition(g_myid+1)-partition(g_myid))
+      
       ! Fill in the clone cell levels
       call clone_get(m%levels%cell_level)
 
@@ -518,21 +391,6 @@ contains
          return
       end if
 #ifdef ENABLE_MPI
-
-      ! update cell daughters
-      tmp_cell => m%levels%cell_daughter
-      nullify(m%levels%cell_daughter)
-      allocate(m%levels%cell_daughter(numcell_clone))
-      m%levels%cell_daughter(1:numcell) = tmp_cell(1:numcell)
-      deallocate(tmp_cell)
-      ! Fill in the clone cell daughters
-      call clone_get(m%levels%cell_daughter)
-      daughter => m%levels%cell_daughter
-
-      ! Fix cases where neighbor has a daughter.
-      ! This only occurs when we are a coarse cell and the PE neighbor
-      ! has a fine cell.
-
 
       ! convenience scalar
       n_external = numcell_clone - numcell
@@ -706,23 +564,6 @@ contains
       call mpi_waitall(n_nodes, nodes(:)%request_send, MPI_STATUSES_IGNORE, ierror)
       call mpi_waitall(n_nodes, request_send, MPI_STATUSES_IGNORE, ierror)
 
-
-      !*-- Resize AMR cell_level with new ghosts and update clones
-      old_cell_level => m%levels%cell_level
-      nullify(m%levels%cell_level)
-      allocate(m%levels%cell_level(numcell_clone))
-      m%levels%cell_level(1:numcell) = old_cell_level(1:numcell)
-      deallocate(old_cell_level)
-      call clone_get(m%levels%cell_level)
-
-      !*-- Resize daughters to check if any off-processor cells need to be modified
-      daughter => m%levels%cell_daughter
-      nullify(m%levels%cell_daughter)
-      allocate(m%levels%cell_daughter(m%cells%numcell_clone))
-      m%levels%cell_daughter(1:m%cells%numcell) = daughter(1:m%cells%numcell)
-      deallocate(daughter)
-      call clone_get(m%levels%cell_daughter)
-
       ! Deallocate memory that was used for MPI buffers
       do iNode = 1, n_nodes
          call new_remote_id(iNode)%release()
@@ -730,25 +571,13 @@ contains
       deallocate(new_remote_id)
       deallocate(node_count)
 
-      ! BLOCK
-      !   ! Quick check
-      !   use iso_fortran_env, only: INT64
-      !   integer(INT64), pointer, dimension(:) :: daughter
-      !   daughter => pio_get_range_i64(1, "cell_daughter", 0, &
-      !        partition(clone_myid()), partition(clone_myid()+1) - partition(clone_myid()))
-      !   do iNode = 1, n_nodes
-      !      if (any(daughter(nodes(iNode)%send_id) > 0)) then
-      !         write(*,*) 'ERROR ON SEND from ',clone_myid(), nodes(iNode)%rank
-      !      end if
-      !   end do
-      ! END BLOCK
 
 #endif
     END ASSOCIATE
 
   end subroutine clone_update_AMR_boundary
 
-  subroutine clone_init(m, nbrs, bfp)
+  subroutine clone_init(m, nbrs, clone_map)
     ! Initializes the clone arrays and
     ! fixes the neighboring cell IDs 
     use iso_fortran_env, only: INT64
@@ -757,12 +586,12 @@ contains
     implicit none
     type(mesh_t), intent(inout) :: m
     integer(INT64), pointer :: nbrs(:,:)
+    integer(INT64), pointer :: clone_map(:)
     type(binFile) :: bfp
     integer :: l, nprocs, ierror
     integer :: iDim, iProc, iNode, iTmp, iNow, index
     integer(INT64) :: id_lo, id_hi, iCell, iStart, iEnd
     
-    integer(INT64), allocatable :: clone_map(:)
     integer, allocatable :: proc_map(:), tmp(:)
     type(data_t), allocatable :: tmp_id_recv(:)
     integer, parameter :: TAG_NSEND=1, TAG_IDS=3
@@ -778,11 +607,6 @@ contains
       nprocs = size(partition, 1)
       iStart = partition(g_myid)
       iEnd = partition(g_myid + 1) - 1
-
-      ! Update the neighbor array and get a clone map of
-      ! clone cell ID (from m%cells%numcell +1 -> m%cells%numcellclone)
-      ! to absolute cell number
-      call update_nbrs_and_get_clone_map(m, iStart, iEnd, nbrs, clone_map)
 
       ! Next two loops loop over remote cells, so we don't have to
       ! check if they are on-processor
@@ -881,7 +705,6 @@ contains
          call mpi_wait(nodes(iNode)%request_recv, MPI_STATUS_IGNORE, ierror)
          
          ! Allocate space and post receive for IDS
-         !SS Replace mother cells with daughters to handle AMR boundaries
          allocate(nodes(iNode)%send_id(nodes(iNode)%nSend))
          call mpi_irecv(nodes(iNode)%send_id, nodes(iNode)%nSend, MPI_INTEGER, &
               nodes(iNode)%rank, TAG_IDS, myComm, nodes(iNode)%request_recv, ierror)
@@ -904,11 +727,6 @@ contains
          call tmp_id_recv(iProc)%release()
       end do
 
-
-      ! Now update clone ids for AMR transfers
-      call clone_update_AMR_boundary(m, nbrs, clone_map, bfp)
-      
-      deallocate(clone_map)
     END ASSOCIATE
 
   end subroutine clone_init

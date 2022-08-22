@@ -62,10 +62,14 @@ import struct
 def getFaceType(index, iCell, iNbr, level):
     if iCell == iNbr:
         iType = 1 + index%2
+    elif level[iNbr] == level[iCell]:
+        iType = 3
     elif level[iNbr] > level[iCell]:
         iType = 4 + index%2
+    elif level[iNbr] < level[iCell]:
+        iType = 5 - index%2
     else:
-        iType = 3
+        raise ValueError("Invalid type calculation")
     return iType
         
 def convertPIO(fname, outfile, verbose=False):
@@ -75,26 +79,41 @@ def convertPIO(fname, outfile, verbose=False):
     cell_level = p.readArray("cell_level_0").astype(np.int32)
     daughter = p.readArray("cell_daughter_0").astype(np.int64)
     offsets = [1,0,2,0,4,0]
+    nFaces = np.zeros((2 * p.ndim,6),'i')
 
     if(verbose):
         print(len(daughter),daughter)
-    nbrs = np.zeros((p.numcell, 2 * p.ndim), np.int64)
-    face_type = np.zeros((p.numcell,8), np.int8)
+    nbrs = np.zeros((2 * p.ndim, p.numcell), np.int64)
+    face_type = np.zeros((2 * p.ndim, p.numcell), np.int8)
+    numtop = 0
     for idx in range(2 * p.ndim):
+        idim = int(idx/2)
         if(verbose):
             print(f"cell_index_{idx+1}")
         a = p.readArray(f"cell_index_{idx+1}").astype(np.int64)
         for iCell in range(p.numcell):
             mydtr = daughter[iCell]
+            iType = 0
             if mydtr == 0:
+                if idx ==0:
+                    numtop += 1
                 iNbr = a[iCell] - 1
                 dtr = daughter[iNbr]
                 if dtr > 0:
                     a[iCell] = (daughter[iNbr] + offsets[idx])
-            face_type[iCell][idx] = getFaceType(idx, iCell, iNbr, cell_level)
-
-        nbrs[:,idx] = a.astype(np.int64)
-
+                    iNbr = a[iCell] - 1
+                iType = getFaceType(idx, iCell, iNbr, cell_level)
+                face_type[idx,iCell] = iType
+                if iType < 3:
+                    nFaces[idx,iType] += 1
+                elif iType == 3 and idx%2 == 0:
+                    nFaces[idx,iType] += 1
+                elif iType == 4 and idx%2 > 0:
+                    nFaces[idx,iType] += 1
+                elif iType == 5 and idx%2 == 0:
+                    nFaces[idx,iType] += 1
+        nbrs[idx, :] = a
+    print('numtop=', numtop)
     # variables we will write
     sizeOf = {'i08': 1, 'i32':4, 'i64':8, 'f64':8}
     newNames = {}
@@ -104,7 +123,7 @@ def convertPIO(fname, outfile, verbose=False):
     newNames['face_type'] = {'type':'i08', 'n':2 * p.ndim * p.numcell}
     newNames['cell_center'] = {'type':'f64', 'n':p.ndim * p.numcell}
     newNames['vcell'] = {'type':'f64', 'n':p.numcell}
-    
+
     # Now to write the file
     with open(outfile,'wb') as ofp:
         if(verbose):
@@ -116,12 +135,12 @@ def convertPIO(fname, outfile, verbose=False):
         ofp.write(struct.pack("q",p.lName))
         ofp.write(struct.pack("q",len(newNames)))
 
-        # Offset is current position + name list
-        offset = ofp.tell() + ( p.lName + 8 ) * len(newNames)
-
         # Write variable offsets        
         if(verbose):
             print('   writing offsets')
+            
+        # Offset is current position + size of  name list
+        offset = ofp.tell() + (p.lName + 8 + 8) * len(newNames)
         for n in newNames:
             isz = sizeOf[newNames[n]['type']]
             ofp.write(f"{n:<{p.lName}}".encode())
@@ -145,7 +164,6 @@ def convertPIO(fname, outfile, verbose=False):
                     c = None
             elif n == 'cell_daughter':
                 daughter.tofile(ofp)
-                daughter = None
             elif n == 'cell_index':
                 nbrs.tofile(ofp)
                 nbrs = None
@@ -169,7 +187,19 @@ def convertPIO(fname, outfile, verbose=False):
 
         if(verbose):
             print('done writing')
-        
+    counts = [0]*6
+    for i2,t in enumerate(face_type):
+        for iCell,s in enumerate(t):
+            if s == 1 and i2%2 == 1:
+                print('HIgh side 1:', iCell, t)
+            counts[s] += 1
+    print(' typecount=', sum(counts), counts)
+    print('nFacecount=', sum(sum(nFaces)), [sum(nFaces[:,iType]) for iType in range(1,6)])
+    for iDim in range(p.ndim):
+        print('idim=', iDim, nFaces[idim,:])
+
+    icell = 53
+    # print(f'cell={icell-1} faces={face_type[:][icell-1]}')
 if __name__ == "__main__":
     import sys
 
