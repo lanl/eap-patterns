@@ -182,6 +182,7 @@ contains
     write(*,*) g_myid, '_____________ERROR ERROR ERROR________________'
     write(*,*) g_myid, message
     write(*,*) g_myid, '----------------------------------------------'
+    call flush(6)
 #ifdef ENABLE_MPI
     call MPI_Abort(mycomm, 1, ierr)
 #else
@@ -240,7 +241,7 @@ contains
     else if (the_type == DATA_R64) then
        allocate(self%r64(n))
     else
-       write(*,*) 'wrong data type'
+       stop 'wrong data type'
     end if
   end subroutine data_alloc
   
@@ -422,7 +423,7 @@ contains
             iCell = ltop(iTop)
 
             ! Lo side
-            iNbr = nbrs(iCell, 2 * iDim - 1) 
+            iNbr = nbrs(2 * iDim - 1, iCell) 
             if ((iNbr > numcell) .and. (m%levels%cell_level(iNbr) > m%levels%cell_level(iCell))) then
                iNbr = iNbr - numcell
                iProc = node_map(iNbr)
@@ -435,7 +436,7 @@ contains
             end if
 
             ! Hi Side
-            iNbr = nbrs(iCell, 2 * iDim)
+            iNbr = nbrs(2 * iDim, iCell)
             if ((iNbr > numcell) .and. (m%levels%cell_level(iNbr) > m%levels%cell_level(iCell))) then
                iNbr = iNbr - numcell
                iProc = node_map(iNbr)
@@ -547,9 +548,9 @@ contains
       do iTmp = 1, numtop
          iCell = ltop(iTmp)
          do iDim = 1,2*nDim
-            iNbr = nbrs(iCell, iDim)
+            iNbr = nbrs(iDim, iCell)
             if (iNbr > numcell) then
-               nbrs(iCell,iDim) = new_index(iNbr - numcell)
+               nbrs(iDim,iCell) = new_index(iNbr - numcell)
             end if
          end do
       end do
@@ -588,7 +589,7 @@ contains
     integer(INT64), pointer :: nbrs(:,:)
     integer(INT64), pointer :: clone_map(:)
     type(binFile) :: bfp
-    integer :: l, nprocs, ierror
+    integer :: l, ierror
     integer :: iDim, iProc, iNode, iTmp, iNow, index
     integer(INT64) :: id_lo, id_hi, iCell, iStart, iEnd
     
@@ -598,13 +599,14 @@ contains
     
     ASSOCIATE(                                   &
          numtop => m%levels%numtop,              &
+         allnumtop => m%levels%allnumtop,        &
          numcell_clone => m%cells%numcell_clone, &
          numcell => m%cells%numcell,             &
-         partition => m%cells%cell_address       &
+         partition => m%cells%cell_address,      &
+         nprocs => g_nprocs                      &
          )
 
       ! Initialize convenience scalars
-      nprocs = size(partition, 1)
       iStart = partition(g_myid)
       iEnd = partition(g_myid + 1) - 1
 
@@ -615,9 +617,14 @@ contains
       allocate(tmp(0:nprocs-1))
       n_nodes = 0
       tmp = 0
-      do iTmp = 1, numcell_clone - numcell
+      do iTmp = 1, allnumtop - numtop
          iCell = clone_map(iTmp)
          iProc = get_proc_id(iCell, nprocs, partition)
+            if (iProc < 0) then
+               write(*,*)  'negative iProc!', iCell, iProc
+               call flush(6)
+               call clone_abort('negative iProc')
+            end if
          if ( iProc /= g_myid) then
             if (tmp(iProc) == 0) then
                n_nodes = n_nodes + 1
@@ -637,6 +644,9 @@ contains
       if (ierror /= 0) stop 'error allocating in clone_init()'
       proc_map = -1
       iNow = 0
+      ! write(*,*) g_myid, 'clonemap=', clone_map
+      ! write(*,*) g_myid, 'sizeof_clonemap', shape(clone_map)
+      ! write(*,*) g_myid, 'numbers:', allnumtop - numtop, numcell_clone - numcell
       do iTmp = numcell + 1, numcell_clone
          iCell = clone_map(iTmp-numcell)               ! Global cell ID of clone
          iProc = get_proc_id(iCell, nprocs, partition) ! Remote processor ID of clone
@@ -650,6 +660,9 @@ contains
             nodes(iNow)%nRecv = tmp(iProc)
             
             ! Allocate space for mapping data received
+            if (allocated(nodes(iNow)%recv_map)) then
+               deallocate(nodes(iNow)%recv_map)
+            end if
             allocate(nodes(iNow)%recv_map(nodes(iNow)%nrecv))
 
             ! Allocate space for remote IDs of cells we expect to
@@ -672,6 +685,7 @@ contains
       end do
       if (iNow /= n_nodes) then
          write(*,*) g_myid, '__UNEQUAL NNODES__:    ',iNow, n_nodes, proc_map
+         call clone_abort('unequal nodes')
       end if
       
       ! Deallocate temporary memory

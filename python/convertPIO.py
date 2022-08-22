@@ -83,8 +83,8 @@ def convertPIO(fname, outfile, verbose=False):
 
     if(verbose):
         print(len(daughter),daughter)
-    nbrs = np.zeros((2 * p.ndim, p.numcell), np.int64)
-    face_type = np.zeros((2 * p.ndim, p.numcell), np.int8)
+    nbrs = np.zeros((p.numcell, 2 * p.ndim), np.int64)
+    face_type = np.zeros((p.numcell, 2 * p.ndim), np.int8)
     numtop = 0
     for idx in range(2 * p.ndim):
         idim = int(idx/2)
@@ -103,7 +103,7 @@ def convertPIO(fname, outfile, verbose=False):
                     a[iCell] = (daughter[iNbr] + offsets[idx])
                     iNbr = a[iCell] - 1
                 iType = getFaceType(idx, iCell, iNbr, cell_level)
-                face_type[idx,iCell] = iType
+                face_type[iCell,idx] = iType
                 if iType < 3:
                     nFaces[idx,iType] += 1
                 elif iType == 3 and idx%2 == 0:
@@ -112,7 +112,7 @@ def convertPIO(fname, outfile, verbose=False):
                     nFaces[idx,iType] += 1
                 elif iType == 5 and idx%2 == 0:
                     nFaces[idx,iType] += 1
-        nbrs[idx, :] = a
+        nbrs[:,idx] = a
     print('numtop=', numtop)
     # variables we will write
     sizeOf = {'i08': 1, 'i32':4, 'i64':8, 'f64':8}
@@ -188,10 +188,10 @@ def convertPIO(fname, outfile, verbose=False):
         if(verbose):
             print('done writing')
     counts = [0]*6
-    for i2,t in enumerate(face_type):
-        for iCell,s in enumerate(t):
+    for iCell,t in enumerate(face_type):
+        for i2,s in enumerate(t):
             if s == 1 and i2%2 == 1:
-                print('HIgh side 1:', iCell, t)
+                print('High side 1:', iCell, t)
             counts[s] += 1
     print(' typecount=', sum(counts), counts)
     print('nFacecount=', sum(sum(nFaces)), [sum(nFaces[:,iType]) for iType in range(1,6)])

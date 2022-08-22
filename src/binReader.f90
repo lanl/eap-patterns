@@ -156,7 +156,7 @@ contains
           myStart = this%vars(i)%offset + (iStart - 1) * n2 * this%vars(i)%size
           myBytes = myN * n2 * this%vars(i)%size
           if (.not. associated(outPtr)) then
-             allocate(outPtr(myN,n2))
+             allocate(outPtr(n2,myN))
           end if
           call readIt(c_loc(outPtr), this%fp, myStart, myBytes)
           exit
@@ -179,7 +179,7 @@ contains
           myStart = this%vars(i)%offset + (iStart - 1) * n2 * this%vars(i)%size
           myBytes = myN * n2 * this%vars(i)%size
           if (.not. associated(outPtr)) then
-             allocate(outPtr(myN,n2))
+             allocate(outPtr(n2,myN))
           end if
           call readIt(c_loc(outPtr), this%fp, myStart, myBytes)
           exit
@@ -203,7 +203,7 @@ contains
           myStart = this%vars(i)%offset + (iStart - 1) * n2 * this%vars(i)%size
           myBytes = myN * n2 * this%vars(i)%size
           if (.not. associated(outPtr)) then
-             allocate(outPtr(myN,n2))
+             allocate(outPtr(n2,myN))
           end if
           call readIt(c_loc(outPtr), this%fp, myStart, myBytes)
           exit

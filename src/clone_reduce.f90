@@ -178,6 +178,7 @@ contains
     if (bcast) then
        call mpi_Allreduce(value_in, result_out, 1, MPI_REAL8, my_mpi_Op, myComm, ierror)
     else
+       result_out = -1.0d0
        call mpi_reduce(value_in, result_out, 1, MPI_REAL8, my_mpi_Op, 0, myComm, ierror)
     end if
 #endif

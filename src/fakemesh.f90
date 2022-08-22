@@ -3,7 +3,7 @@
 module fakemesh
   use mesh_types, only: mesh_t
   use mesh_state_types, only: mesh_state_frac_core_t
-  use clone_lib_module, only: clone_myid
+  use clone_lib_module, only: clone_myid, clone_reduce, CLONE_SUM
   use binreader
   
   implicit none
@@ -212,8 +212,8 @@ contains
             iCell = m%levels%ltop(iTop)
             ! Low side
             idx = 2 * idim - 1
-            id_lo = nbrs(iCell, idx)
-            iType = face_type(iCell, idx)
+            id_lo = nbrs(idx, iCell)
+            iType = face_type(idx, iCell)
             if (iType /= 4 .or. id_lo > m%cells%numcell) then
                iIndex = idMap(iType, iDim)
                iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
@@ -225,7 +225,7 @@ contains
                   ! Add in n_shift more faces for off-processor AMR
                   do j = 1, n_shift
                      iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
-                     faces%face_local(iFace, LO_SIDE, idim) = id_lo + offsets_n(j, idim)
+                     faces%face_local(iFace, LO_SIDE, idim) = id_lo + 1
                      faces%face_local(iFace, HI_SIDE, idim) = iCell
                      faceIndex(iIndex) = faceIndex(iIndex) + 1
                   end do
@@ -235,16 +235,13 @@ contains
             
             ! High side
             idx = 2 * idim
-            id_hi = nbrs(iCell, idx)
-            iType = face_type(iCell, idx)
+            id_hi = nbrs(idx, iCell)
+            iType = face_type(idx, iCell)
             iIndex = idMap(iType, iDim)
             iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
 22          FORMAT('icell=',i8,', itype=',i2, ', idx=', i2, ', dim=', i1, ', map=', 5(i2,','))
             if (iType == 2 .or. iType == 4 .or. id_hi > m%cells%numcell) then
                iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
-               !write(*,22) iCell, iType, iIndex, iDim, idMap(:,iDim)
-               !write(*,*) iFace, idim, iIndex, 'face_local shape=', shape(faces%face_local), &
-               !     faces%face_lo(iIndex, iDim), faceIndex(iIndex)
                faces%face_local(iFace, LO_SIDE, idim) = iCell
                faces%face_local(iFace, HI_SIDE, idim) = id_hi
                faceIndex(iIndex) = faceIndex(iIndex) + 1
@@ -253,10 +250,8 @@ contains
                   ! Only true if id_hi > numcell
                   do jTmp = 1, n_shift
                      iFace = faces%face_lo(iIndex, iDim) + faceIndex(iIndex)
-23                   FORMAT('iFace=',i8,', itype=',i2, ', idx=', i2, ', dim=', i1, ', lo=', i8, ', face_idx=', i8)
-                     !write(*,23) iFace, iType, iIndex, iDim, faces%face_lo(iIndex, iDim)!, face_index(iIndex)
                      faces%face_local(iFace, LO_SIDE, idim) = iCell
-                     faces%face_local(iFace, HI_SIDE, idim) = id_hi + offsets_n(j, idim)
+                     faces%face_local(iFace, HI_SIDE, idim) = id_hi + 1
                      faceIndex(iIndex) = faceIndex(iIndex) + 1
                   end do
                end if
@@ -268,16 +263,21 @@ contains
     
   end subroutine init_faces
   
-  pure subroutine findCloneID(idNew, iNbr, num_clone, clone_map)
+  subroutine findCloneID(idNew, iNbr, num_clone, clone_map, iType, idx, n_shift, idim)
     use iso_fortran_env, only: INT64
     implicit none
     integer(INT64), intent(out) :: idNew
     integer(INT64), intent(in) :: iNbr
     integer(INT64), intent(inout) :: num_clone, clone_map(:)
+    integer, intent(in) :: iType, idx
+    integer(INT64), intent(in) :: n_shift
+    integer, intent(in) :: idim
+    integer, parameter :: offsets_n(3,3) =  reshape([2,4,6, 1,4,5, 1,2,3],[3,3])
 
     integer :: j
 
     idNew = -1
+
     do j = 1, num_clone
        if (clone_map(j) == iNbr) then
           idNew = j
@@ -289,6 +289,13 @@ contains
        num_clone = num_clone + 1
        clone_map(num_clone) = iNbr
        idNew = num_clone
+       if ( (iType == 4 .and. mod(idx,2) == 1) .or. &
+            (iType == 5 .and. mod(idx,2) == 0)) then
+          do j = 1, n_shift
+             num_clone = num_clone + 1
+             clone_map(num_clone) = iNbr + offsets_n(j, idim)
+          end do
+       end if
     end if
 
   end subroutine findCloneID
@@ -296,7 +303,7 @@ contains
   subroutine init(self, myfile, mpinprocs, mpiid)
     use iso_fortran_env, only: INT64, REAL64, INT8
     use iso_c_binding
-    use clone_lib_module, only: mycomm, clone_abort, clone_get, clone_base_init, clone_init, clone_barrier
+    use clone_lib_module, only: mycomm, clone_abort, clone_get, clone_base_init, clone_init, clone_barrier, clone_myid
     implicit none
 
     class(fakemesh_t) :: self
@@ -304,8 +311,8 @@ contains
     integer, intent(in), optional :: mpinprocs
     integer, intent(in), optional :: mpiid
     integer(INT64), pointer, dimension(:) :: daughter
-    integer(INT64), pointer, dimension(:) :: clone_map
-    integer(INT64) :: i, j, iStart, nCount, myProcs, nCell, iNbr, myNbr, nClone, iNew
+    integer(INT64), pointer, dimension(:) :: clone_map, tmp_clone_map
+    integer(INT64) :: i, j, iStart, nCount, myProcs, nCell, iNbr, myNbr, nClone, iNew, tmp_i64
     integer :: nprocs, myid, ndim, iTmp, iDim, idx, iType
     real(c_double), pointer, dimension(:) :: tmp_d
     integer(INT64), dimension(:), pointer :: lo_cell, hi_cell
@@ -374,9 +381,16 @@ contains
 
       iEnd = iStart + nCount - 1
       !*-- Count number of top level cells and number of clones
-      call self%bfp%read(nbrs, "cell_index", iStart, nCount, 2_INT64 * nDim)
-      call self%bfp%read(face_type, "face_type", iStart, nCount, 2_INT64 * nDim)
-      call self%bfp%read(m%levels%cell_daughter, "cell_daughter", iStart, nCount)
+      if (myid == 0 ) write(*,*) '  Reading basic mesh data'
+      do i=0,nprocs-1
+         if (i == myID) then
+            write(*,'  ("    Reading on processor: ", i6)') i
+            call self%bfp%read(nbrs, "cell_index", iStart, nCount, 2_INT64 * nDim)
+            call self%bfp%read(face_type, "face_type", iStart, nCount, 2_INT64 * nDim)
+            call self%bfp%read(m%levels%cell_daughter, "cell_daughter", iStart, nCount)
+         end if
+         call clone_barrier()
+      end do
       daughter => m%levels%cell_daughter
       
 
@@ -400,11 +414,14 @@ contains
             do iDim = 1, nDim
                ! Check low side face
                idx = 2 * iDim - 1
-               iNbr = nbrs(iCell, idx)
-               iType = face_type(iCell, idx)
+               iNbr = nbrs(idx, iCell)
+               iType = face_type(idx, iCell)
                if (iType /= 4) then
                   ! Add all non-type 4 faces
                   face_count(iType, iDim) = face_count(iType, iDim) + 1
+                  if (iNbr < iStart .or. iNbr > iEnd) then
+                     nClone = nClone + 1
+                  end if
                else if (iNbr < iStart .or. iNbr > iEnd) then
                   ! Off processor, only type 4 faces here
                   ! Type 4 faces require additional clones
@@ -414,8 +431,8 @@ contains
 
                ! Check high side
                idx = 2 * idim
-               iNbr = nbrs(iCell, idx)
-               iType = face_type(iCell, idx)
+               iNbr = nbrs(idx, iCell)
+               iType = face_type(idx, iCell)
                if (iNbr < iStart .or. iNbr > iEnd) then
                   ! Off processor, *always* add
                   face_count(iType, iDim) = face_count(iType, iDim) + 1
@@ -434,69 +451,93 @@ contains
          end if
       end do
 
-      write(*,*) clone_myid(), 'faces=', (sum(face_count(iType,:)), iType=1,5)
-      call clone_barrier()
-      stop 'hello'
+      call clone_reduce(tmp_i64, nClone, CLONE_SUM)
+      if (myID == 0) then
+         write(*,*) '   initial clone estimate:', tmp_i64
+      end if
+      ! BLOCK
+      !   integer :: xtypeSum(5), iCell
+      !   xtypeSum(1:5) = 0
+      !   do iType = 1, 5
+      !      do iCell = 1, m%cells%numcell
+      !         do i = 1, 2 * ndim
+      !            if (face_type(i, iCell) == iType) then
+      !               xtypeSum(iType) = xtypeSum(iType) + 1
+      !            end if
+      !         end do
+      !      end do
+      !   end do
+      !   write(*,*) 'typesum:',sum(xtypeSum), ', typesum=', xtypeSum
+      !   do iDim = 1, nDim
+      !      write(*,*) ' faces in dims', iDim, sum(face_count(:,iDim)), face_count(:, iDim)
+      !   end do
+      ! END BLOCK
+      
+      ! write(*,*) clone_myid(), 'faces=', (sum(face_count(iType,:)), iType=1,5)
+
       if (m%levels%numtop == 0) then
          call clone_abort('No top level cells.  Reduce number of processors')
       end if
 
       !*-- Initialize ltop
       !*-- remap neighbors and configure clone_map
-      allocate(clone_map(nClone))
+      allocate(tmp_clone_map(nClone))
       allocate(m%levels%ltop(m%levels%numtop))
       m%cells%numcell_clone = m%cells%numcell + nClone
-      allocate(m%levels%alltop(m%levels%allnumtop))
       iTmp = 0
       nClone = 0
-      do i = 1, m%cells%numcell
-         if (daughter(i) <= 0) then
+      do iCell = 1, m%cells%numcell
+         if (daughter(iCell) <= 0) then
             iTmp = iTmp + 1
-            m%levels%ltop(iTmp) = i
+            m%levels%ltop(iTmp) = iCell
             ! fix neighbors array
             LOOP_2_NDIM: do idx = 1, 2 * nDim
                ! Check low side for type 4 face
-               iNbr = nbrs(i, idx)
-               iType = face_type(i, idx)
-               if (iNbr >= iStart .or. iNbr <= iEnd) then
-                  nbrs(i, idx) = iNbr - iStart + 1
+               iNbr = nbrs(idx, iCell)
+               iType = face_type(idx, iCell)
+               if (iNbr >= iStart .and. iNbr <= iEnd) then
+                  nbrs(idx, iCell) = iNbr - iStart + 1
                else
                   ! Add a clone for *all* off-PE cells
-                  call findCloneID(iNew, iNbr, nClone, clone_map)
-                  nbrs(i, idx) = iNew + m%levels%numtop
-
-                  ! Add additional clones for T-cells as appropriate
-                  if ( (iType == 4 .and. mod(idx,2) == 1) .or. &
-                       (iType == 5 .and. mod(idx,2) == 0)) then
-                     LOOP_TCELL: do j = 1, n_shift
-                        nClone = nClone + 1
-                        clone_map(nClone) = iNbr + offsets_n(j, (idx+1)/2)
-                     end do LOOP_TCELL
-                  end if
+                  call findCloneID(iNew, iNbr, nClone, tmp_clone_map, iType, idx, n_shift, idim)
+                  nbrs(idx, iCell) = iNew + m%cells%numcell
+                  ! Note that above call adds the additional clones for sister cells
                end if
             end do LOOP_2_NDIM
          end if
       end do
+      call clone_barrier()
+      call clone_reduce(tmp_i64, nClone, CLONE_SUM)
+      if (myID == 0) then
+         write(*,*) '   final clone count:', tmp_i64
+      end if
 
+      ! Set clone_map to correct size and copy data
+      allocate(clone_map(nClone))
+      clone_map(1:nClone) = tmp_clone_map(1:nClone)
+      deallocate(tmp_clone_map)
+
+
+      m%cells%numcell_clone = m%cells%numcell + nClone
       m%levels%allnumtop = nClone + m%levels%numtop
       allocate(m%levels%alltop(m%levels%allnumtop))
       m%levels%alltop(1:m%levels%numtop) = m%levels%ltop(1:m%levels%numtop)
-      do i = m%levels%numtop + 1, m%levels%allnumtop
-         m%levels%alltop(1:m%levels%numtop) = i
+      do iCell = m%levels%numtop + 1, m%levels%allnumtop
+         m%levels%alltop(1:m%levels%numtop) = iCell
       end do
 
       ! Create faces
-      if (myid == 0 ) write(*,*) 'Initializing faces'
+      if (myid == 0 ) write(*,*) '  Initializing faces'
       call self%init_faces(iStart, nCount, nbrs, face_type, face_count)
       
       !*-- initialize clones
+      if (myid == 0 ) write(*,*) '  Initializing clone communications'
       call clone_init(self%m, nbrs, clone_map)
 
       deallocate(nbrs)
       deallocate(clone_map)
       deallocate(m%levels%cell_daughter)
       
-      call clone_barrier()
       if (myid == 0 ) write(*,*) 'Done initializing, reading data'
 
       !*-- Update cell daughters

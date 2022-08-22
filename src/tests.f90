@@ -64,8 +64,9 @@ contains
     values = 1
     
     ! Compute the expected result
+    expected_result = 1.0d0
     partial_result = real(m%levels%numtop, kind=REAL64)
-    call clone_reduce(expected_result, partial_result, CLONE_SUM)
+    call clone_reduce(expected_result, partial_result, CLONE_SUM, .false.)
     expected_result = real(n_iter,kind=REAL64) * expected_result
 
     ! Run the loop
