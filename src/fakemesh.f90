@@ -451,30 +451,6 @@ contains
          end if
       end do
 
-      call clone_reduce(tmp_i64, nClone, CLONE_SUM)
-      if (myID == 0) then
-         write(*,*) '   initial clone estimate:', tmp_i64
-      end if
-      ! BLOCK
-      !   integer :: xtypeSum(5), iCell
-      !   xtypeSum(1:5) = 0
-      !   do iType = 1, 5
-      !      do iCell = 1, m%cells%numcell
-      !         do i = 1, 2 * ndim
-      !            if (face_type(i, iCell) == iType) then
-      !               xtypeSum(iType) = xtypeSum(iType) + 1
-      !            end if
-      !         end do
-      !      end do
-      !   end do
-      !   write(*,*) 'typesum:',sum(xtypeSum), ', typesum=', xtypeSum
-      !   do iDim = 1, nDim
-      !      write(*,*) ' faces in dims', iDim, sum(face_count(:,iDim)), face_count(:, iDim)
-      !   end do
-      ! END BLOCK
-      
-      ! write(*,*) clone_myid(), 'faces=', (sum(face_count(iType,:)), iType=1,5)
-
       if (m%levels%numtop == 0) then
          call clone_abort('No top level cells.  Reduce number of processors')
       end if
@@ -507,10 +483,6 @@ contains
          end if
       end do
       call clone_barrier()
-      call clone_reduce(tmp_i64, nClone, CLONE_SUM)
-      if (myID == 0) then
-         write(*,*) '   final clone count:', tmp_i64
-      end if
 
       ! Set clone_map to correct size and copy data
       allocate(clone_map(nClone))
@@ -531,14 +503,14 @@ contains
       call self%init_faces(iStart, nCount, nbrs, face_type, face_count)
       
       !*-- initialize clones
-      if (myid == 0 ) write(*,*) '  Initializing clone communications'
+      if (myid == 0 ) write(*,*) '  Initializing communications'
       call clone_init(self%m, nbrs, clone_map)
 
       deallocate(nbrs)
       deallocate(clone_map)
       deallocate(m%levels%cell_daughter)
       
-      if (myid == 0 ) write(*,*) 'Done initializing, reading data'
+      if (myid == 0 ) write(*,*) '  Reading cell info'
 
       !*-- Update cell daughters
       allocate(m%levels%cell_daughter(m%cells%numcell_clone))
@@ -575,7 +547,7 @@ contains
       
 
       call clone_barrier()
-      if (myid == 0 ) write(*,*) 'Done initializing faces'
+      if (myid == 0 ) write(*,*) 'Done initializing mesh'
     END ASSOCIATE
   end subroutine init
 
