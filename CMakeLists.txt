@@ -48,6 +48,12 @@ endif ()
 add_executable(mygrad ${F90_SOURCES} ${C_SOURCES} )
 set_property(TARGET mygrad PROPERTY LINKER_LANGUAGE Fortran)
 
+# find_package(VTUNE REQUIRED)
+
+include_directories(/usr/projects/hpcsoft/toss3/common/x86_64/oneapi/2021.2.0.2883/vtune/2021.2.0/include/intel64)
+# link_directories(/usr/projects/hpcsoft/toss3/common/x86_64/oneapi/2021.2.0.2883/vtune/2021.2.0/lib64)
+target_link_libraries(mygrad "-L/usr/projects/hpcsoft/toss3/common/x86_64/oneapi/2021.2.0.2883/vtune/2021.2.0/lib64 -littnotify")
+
 if ( EP_GZ )
   find_package(ZLIB REQUIRED)
   set(CMAKE_C_FLAGS " ${CMAKE_C_FLAGS} -DENABLE_GZ=1 ")

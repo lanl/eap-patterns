@@ -35,6 +35,7 @@ program test
   use fakemesh
   use binreader, only: binfile_verify_signature
   use mesh_state_types
+  use ittnotify
   use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs, &
        clone_reduce, CLONE_SUM, clone_barrier
   use tests, only: test_driver
@@ -49,6 +50,7 @@ program test
   integer(INT64) :: total_numtop, local_numtop
   real(REAL64) :: t0, dt
 
+  call itt_pause()
   ! Get the filename
   call GET_COMMAND_ARGUMENT(1, fname)
 
@@ -71,7 +73,7 @@ program test
      call fm%init(trim(fname), nprocs, myid)
 #endif
 
-     n_iter = 1
+     n_iter = 100
      call test_driver(fm%m, n_iter)
 
      call clone_barrier()
