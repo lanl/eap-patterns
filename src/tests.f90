@@ -25,7 +25,11 @@ contains
     if (myid == 0 ) write(*,'(/,"-------BEGIN TESTS----------",/)')
     call faces_sum(m, n_iter)
     call faces_scatter(m, n_iter)
-    call topcell_sum(m, n_iter)
+    call faces_scatter(m, n_iter)
+    call faces_scatter(m, n_iter)
+    call faces_scatter(m, n_iter)
+    call faces_scatter(m, n_iter)
+    !call topcell_sum(m, n_iter)
     if (myid == 0 ) write(*,'(/,"--------END TESTS-----------",/)')
   end subroutine test_driver
 
@@ -108,13 +112,13 @@ contains
     integer, intent(in) :: n_iter
 
     integer :: i, iTop, iCell, iFace, iDim, iLoop, iType, n, nlo, nhi
-    real(REAL64) :: my_dt
-    integer :: faces_by_types(5), faces_on_pe_boundary(5)
-    integer(INT64) :: global_faces_by_types(5), global_faces_on_pe_boundary(5)
+    real(REAL64) :: my_dt, delta, factor
+    real(REAL64) :: faces_by_types(5), faces_on_pe_boundary(5)
+    real(REAL64) :: global_faces_by_types(5), global_faces_on_pe_boundary(5)
 
     ! Initialize arrays
     allocate(values(m%cells%numcell))
-    values = 1
+    values = 1.0d0
 
     faces_by_types = 0
     faces_on_pe_boundary = 0
@@ -122,6 +126,14 @@ contains
     call clone_barrier()
     my_dt = now() 
 
+    if (m%sim%numdim == 1) then
+       factor = 1.0d0
+    else if (m%sim%numdim == 2) then
+       factor = 1.0d0
+    else if (m%sim%numdim == 3) then
+       factor = 1.25d0
+    end if
+    
     do iDim = 1, m%sim%numdim
        ! for each dimension
        do iLoop = 1, m%faces%face_num(iDim)
@@ -135,18 +147,18 @@ contains
              ! Check for PE boundary faces
              nlo = m%faces%face_lo(iLoop, iDim)
              nhi = m%faces%face_hi(iLoop, iDim)
+             if ( iType == 3 ) then
+                delta = 2.0d0
+             else
+                delta = factor
+             end if
              do n = nlo, nhi
-                ! if (m%faces%face_local(n, LO_SIDE, idim) > m%cells%numcell) then
-                !    faces_on_pe_boundary(iType) = faces_on_pe_boundary(iType) + 1
-                ! end if
-                ! All low side faces belong to us
-                faces_by_types(iType) = faces_by_types(iType) + 1
-                
+                ! only low side boundary faces belong to us
                 if (m%faces%face_local(n, HI_SIDE, idim) > m%cells%numcell) then
-                   faces_on_pe_boundary(iType) = faces_on_pe_boundary(iType) + 1
+                   faces_on_pe_boundary(iType) = faces_on_pe_boundary(iType) + delta
+                   faces_by_types(iType) = faces_by_types(iType) + delta
                 else
-                   ! Only non-boundary high side faces belong to us
-                   faces_by_types(iType) = faces_by_types(iType) + 1
+                   faces_by_types(iType) = faces_by_types(iType) + delta
                 end if
              end do
           end if
@@ -167,8 +179,8 @@ contains
           !write(*,'(I4, " ", 2(I12, " "))') iType, global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), &
           ! global_faces_on_pe_boundary(iType)
        end do
-       write(*,'("            Faces: ", 5(I12, " "))') (global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), iType=1,5)
-       write(*,'("       Bdry Faces: ", 5(I12, " "))') (global_faces_on_pe_boundary(iType), iType=1,5)
+       write(*,'("            Faces: ", 5(F12.1, " "))') (global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), iType=1,5)
+       write(*,'("       Bdry Faces: ", 5(F12.1, " "))') (global_faces_on_pe_boundary(iType), iType=1,5)
     end if
     call printit("faces_sum", .true., my_dt)
   end subroutine faces_sum
@@ -199,7 +211,6 @@ contains
 #ifdef ENABLE_VTUNE  
     call itt_resume()
 #endif
-    call sleep(1)
     call clone_barrier()
     my_dt = now()
     if (m%sim%numdim == 2) then
