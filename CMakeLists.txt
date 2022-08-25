@@ -5,11 +5,15 @@ cmake_minimum_required(VERSION 3.16.0)
 project(mygrad LANGUAGES Fortran C)
 
 option(EP_MPI "Build targets with MPI integration;" "ON")
-option(EP_SANITIZE "Add address sanitizer flag;" "ON")
+option(EP_SANITIZE "Add address sanitizer flag;" "OFF")
 option(EP_GZ "Enable GZ file reading in PIO;" "ON")
+option(EP_VTUNE "Enable VTUNE profiling control;" "OFF") 
 
 # Specify default build
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Buld type")
+
+# Always add "-g" to builds
+set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -g -xHost ")
 
 # Specify sources
 set(F90_SOURCES
@@ -48,11 +52,15 @@ endif ()
 add_executable(mygrad ${F90_SOURCES} ${C_SOURCES} )
 set_property(TARGET mygrad PROPERTY LINKER_LANGUAGE Fortran)
 
-# find_package(VTUNE REQUIRED)
-
-include_directories(/usr/projects/hpcsoft/toss3/common/x86_64/oneapi/2021.2.0.2883/vtune/2021.2.0/include/intel64)
-# link_directories(/usr/projects/hpcsoft/toss3/common/x86_64/oneapi/2021.2.0.2883/vtune/2021.2.0/lib64)
-target_link_libraries(mygrad "-L/usr/projects/hpcsoft/toss3/common/x86_64/oneapi/2021.2.0.2883/vtune/2021.2.0/lib64 -littnotify")
+# Add VTune
+if ( EP_VTUNE )
+  if ( "${VTUNE_DIR}" EQUAL "")
+    ERROR("VTUNE_DIR not defined")
+  endif ()
+  include_directories(${VTUNE_DIR}/include/intel64)
+  target_link_libraries(mygrad "-L${VTUNE_DIR}/lib64 -littnotify")
+  set(CMAKE_Fortran_FLAGS " ${CMAKE_Fortran_FLAGS} -DENABLE_VTUNE ")
+endif ()
 
 if ( EP_GZ )
   find_package(ZLIB REQUIRED)
@@ -93,3 +101,4 @@ else()
     message(STATUS "IPO / LTO not supported: <${error}>")
 endif()
 
+message(STATUS "Fortran Flags = ${CMAKE_Fortran_FLAGS}")

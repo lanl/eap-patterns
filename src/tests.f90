@@ -177,7 +177,9 @@ contains
     use define_kind, only: HI_SIDE, LO_SIDE
     use iso_fortran_env, only: REAL64, INT64
     use mesh_types, only: mesh_t
+#ifdef ENABLE_VTUNE  
     use ittnotify
+#endif
     implicit none
 
     type(mesh_t), intent(in) :: m
@@ -194,7 +196,9 @@ contains
     allocate(values(m%cells%numcell_clone))
     values = 0.0d0
 
+#ifdef ENABLE_VTUNE  
     call itt_resume()
+#endif
     call sleep(1)
     call clone_barrier()
     my_dt = now()
@@ -250,7 +254,9 @@ contains
        end do
     end do
     call clone_barrier()
+#ifdef ENABLE_VTUNE  
     call itt_pause()
+#endif
     my_dt = now() - my_dt
 
     ! Check results for leaf cells

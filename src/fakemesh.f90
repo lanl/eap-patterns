@@ -3,7 +3,7 @@
 module fakemesh
   use mesh_types, only: mesh_t
   use mesh_state_types, only: mesh_state_frac_core_t
-  use clone_lib_module, only: clone_myid, clone_reduce, CLONE_SUM
+  use clone_lib_module, only: clone_myid, clone_reduce, CLONE_SUM, clone_abort
   use binreader
   
   implicit none
@@ -23,6 +23,7 @@ module fakemesh
 
   end type fakemesh_t
 
+  integer, private :: ncell = -1
 contains
   
   subroutine init_frac_core(self, iStart, nCount)
@@ -98,7 +99,7 @@ contains
     integer(c_int64_t), parameter :: one = 1
     integer(c_int64_t) :: nBlocks, i, blockSize
     real(c_double) :: quantum, next
-    integer(c_INT64_t) :: ndim, ncell
+    integer(c_INT64_t) :: ndim
 
     ndim = bfp%ndim
     ncell = bfp%ncells
@@ -128,7 +129,6 @@ contains
     use define_kind, only: LO_SIDE, HI_SIDE
     use mem_release, only: release
     use iso_c_binding
-    use clone_lib_module, only: clone_myid
     class(fakemesh_t) :: self
     integer(INT64), intent(in) :: iStart, nCount
     integer(INT64), intent(in), dimension(:,:) :: nbrs
@@ -297,7 +297,6 @@ contains
           end do
        end if
     end if
-
   end subroutine findCloneID
 
   subroutine init(self, myfile, mpinprocs, mpiid)
@@ -381,10 +380,12 @@ contains
 
       iEnd = iStart + nCount - 1
       !*-- Count number of top level cells and number of clones
-      if (myid == 0 ) write(*,*) '  Reading basic mesh data'
+      if (myid == 0 ) then
+         write(*,*)  '  Reading basic mesh data'
+      end if
       do i=0,nprocs-1
          if (i == myID) then
-            write(*,'  ("    Reading on processor: ", i6)') i
+            write(*, '("    Reading on processor: ",i6)') i
             call self%bfp%read(nbrs, "cell_index", iStart, nCount, 2_INT64 * nDim)
             call self%bfp%read(face_type, "face_type", iStart, nCount, 2_INT64 * nDim)
             call self%bfp%read(m%levels%cell_daughter, "cell_daughter", iStart, nCount)
@@ -455,9 +456,12 @@ contains
          call clone_abort('No top level cells.  Reduce number of processors')
       end if
 
+      call clone_barrier()
+      if (myID == 0 ) write(*, *) '  Clones counted'
       !*-- Initialize ltop
       !*-- remap neighbors and configure clone_map
       allocate(tmp_clone_map(nClone))
+      tmp_clone_map = -1
       allocate(m%levels%ltop(m%levels%numtop))
       m%cells%numcell_clone = m%cells%numcell + nClone
       iTmp = 0
@@ -469,6 +473,7 @@ contains
             ! fix neighbors array
             LOOP_2_NDIM: do idx = 1, 2 * nDim
                ! Check low side for type 4 face
+               idim = (idx + 1) / 2
                iNbr = nbrs(idx, iCell)
                iType = face_type(idx, iCell)
                if (iNbr >= iStart .and. iNbr <= iEnd) then
@@ -483,6 +488,8 @@ contains
          end if
       end do
       call clone_barrier()
+      
+      if (myID == 0 ) write(*, *) '  Neighbors adjusted'
 
       ! Set clone_map to correct size and copy data
       allocate(clone_map(nClone))
@@ -509,7 +516,8 @@ contains
       deallocate(nbrs)
       deallocate(clone_map)
       deallocate(m%levels%cell_daughter)
-      
+
+      call clone_barrier()
       if (myid == 0 ) write(*,*) '  Reading cell info'
 
       !*-- Update cell daughters
@@ -528,12 +536,11 @@ contains
       do iDim=1, nDim
          call clone_get(m%cells%cell_center(:,iDim))
       end do
-      
+
       !*-- Update volumes
       allocate(m%cells%vcell(m%cells%numcell_clone))
       call self%bfp%read(m%cells%vcell, "vcelll", iStart, nCount)
       call clone_get(m%cells%vcell)
-
       !*-- Set high and low half volumes assuming cartesian grid
       allocate(m%cells%cell_half_hi(m%cells%numcell_clone, ndim))
       allocate(m%cells%cell_half_lo(m%cells%numcell_clone, ndim))
@@ -541,12 +548,13 @@ contains
          m%cells%cell_half_lo(:, iDim) = m%cells%vcell/2.0_REAL64
          m%cells%cell_half_hi(:, iDim) = m%cells%vcell/2.0_REAL64
       end do
-
       !*-- update the mesh state variables
       !SS call self%init_frac_core(iStart, nCount)
       
-
       call clone_barrier()
+      if (myID == 0) then
+         write(*,*) 'done reading'
+      end if
       if (myid == 0 ) write(*,*) 'Done initializing mesh'
     END ASSOCIATE
   end subroutine init

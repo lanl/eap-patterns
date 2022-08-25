@@ -606,6 +606,8 @@ contains
          nprocs => g_nprocs                      &
          )
 
+      call clone_barrier()
+
       ! Initialize convenience scalars
       iStart = partition(g_myid)
       iEnd = partition(g_myid + 1) - 1
@@ -620,11 +622,13 @@ contains
       do iTmp = 1, allnumtop - numtop
          iCell = clone_map(iTmp)
          iProc = get_proc_id(iCell, nprocs, partition)
-            if (iProc < 0) then
-               write(*,*)  'negative iProc!', iCell, iProc
-               call flush(6)
-               call clone_abort('negative iProc')
-            end if
+         if (iProc < 0) then
+            write(*,*) 'idx=',iTmp
+            write(*,*) 'map=', clone_map
+            write(*,*)  'negative iProc!', iCell, iProc
+            call flush(6)
+            call clone_abort('negative iProc')
+         end if
          if ( iProc /= g_myid) then
             if (tmp(iProc) == 0) then
                n_nodes = n_nodes + 1
@@ -632,6 +636,7 @@ contains
             tmp(iProc) = tmp(iProc) + 1
          end if
       end do
+
 
       ! At this point tmp() holds the number we expect to receive from each processor
       
@@ -647,9 +652,14 @@ contains
       ! write(*,*) g_myid, 'clonemap=', clone_map
       ! write(*,*) g_myid, 'sizeof_clonemap', shape(clone_map)
       ! write(*,*) g_myid, 'numbers:', allnumtop - numtop, numcell_clone - numcell
+
       do iTmp = numcell + 1, numcell_clone
          iCell = clone_map(iTmp-numcell)               ! Global cell ID of clone
          iProc = get_proc_id(iCell, nprocs, partition) ! Remote processor ID of clone
+         if (iProc == g_myID) then
+            write(*,'("Problem? ONPE clone: ", i6, 3(i8,","))') iProc, iCell, iStart, iEnd
+            cycle
+         end if
          if (proc_map(iProc) < 0) then
             ! First neighbor for given processor:
             ! initialize node structure and repurpose tmp(iProc)
@@ -668,6 +678,7 @@ contains
             ! Allocate space for remote IDs of cells we expect to
             ! receive that we will send to the remote processor
             call tmp_id_recv(iNow)%alloc(nodes(iNow)%nrecv, DATA_I)
+
             tmp_id_recv(iNow)%i = -100
 
             ! Repurpose tmp(iProc) to hold index in the map above

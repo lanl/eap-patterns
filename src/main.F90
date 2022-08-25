@@ -35,10 +35,12 @@ program test
   use fakemesh
   use binreader, only: binfile_verify_signature
   use mesh_state_types
-  use ittnotify
   use clone_lib_module, only: clone_exit, clone_myid, clone_nprocs, &
        clone_reduce, CLONE_SUM, clone_barrier
   use tests, only: test_driver
+#ifdef ENABLE_VTUNE  
+  use ittnotify
+#endif
   implicit none
   type(fakemesh_t) :: fm
   type(mesh_state_frac_core_t) :: frac_core
@@ -50,7 +52,10 @@ program test
   integer(INT64) :: total_numtop, local_numtop
   real(REAL64) :: t0, dt
 
+#ifdef ENABLE_VTUNE  
   call itt_pause()
+#endif
+  
   ! Get the filename
   call GET_COMMAND_ARGUMENT(1, fname)
 
