@@ -18,6 +18,7 @@ module binreader
 
   type :: binfile
      integer(INT64) :: ndim
+     integer(INT64) :: nMat
      integer(INT64) :: nCells
      integer(INT64) :: nVars
      type(variable_t), pointer :: vars(:)
@@ -102,21 +103,31 @@ contains
     this%fp = openIt(C0(fname))
 
     offset = 0
+
     call readIt(c_loc(sig), this%fp, offset, 16_INT64)
     offset = offset + 16
+    
     call readIt(c_loc(iEndian), this%fp, offset, 8_INT64)
     offset = offset + 8
-    call readIt(c_loc(iTmp), this%fp, 24_INT64, 8_INT64)
-    offset = offset + 8
+    
+    call readIt(c_loc(iTmp), this%fp, offset, 8_INT64)
     this%ndim = iTmp
-    call readIt(c_loc(iTmp), this%fp, 32_INT64, 8_INT64)
     offset = offset + 8
+    
+    call readIt(c_loc(iTmp), this%fp, offset, 8_INT64)
     this%nCells = iTmp
-    call readIt(c_loc(vLen), this%fp, 40_INT64, 8_INT64)
     offset = offset + 8
-    call readIt(c_loc(iTmp), this%fp, 48_INT64, 8_INT64)
+    
+    call readIt(c_loc(iTmp), this%fp, offset, 8_INT64)
+    this%nMat = iTmp
     offset = offset + 8
+    
+    call readIt(c_loc(vLen), this%fp, offset, 8_INT64)
+    offset = offset + 8
+    
+    call readIt(c_loc(iTmp), this%fp, offset, 8_INT64)
     this%nVars = iTmp
+    offset = offset + 8
 
     allocate(this%vars(this%nVars))
 
@@ -132,6 +143,7 @@ contains
          offset = offset + 8
          call readIt(c_loc(tmpOffset), this%fp, offset, 8_INT64)
          offset = offset + 8
+         write(*,*) 'variable:', ivar, trim(tmpname)
          this%vars(ivar)%name = tmpname
          this%vars(ivar)%size = tmpSize
          this%vars(ivar)%offset = tmpOffset
@@ -246,17 +258,20 @@ contains
     integer :: i
 
     do i =1, this%nvars
+       write(*,*) trim(var), trim(this%vars(i)%name), (var .eq. this%vars(i)%name)
        if (var == this%vars(i)%name) then
           myN = nCount
           myStart = this%vars(i)%offset + (iStart - 1) * this%vars(i)%size
           myBytes = myN * this%vars(i)%size
+          write(*,*) trim(var) // ' found, size=',myBytes, myN, this%vars(i)%size
           if (.not. associated(outPtr)) then
              allocate(outPtr(myN))
           end if
           call readIt(c_loc(outPtr), this%fp, myStart, myBytes)
-          exit
+          return
        end if
     end do
+    stop 'variable not found'
   end subroutine binfile_read_i64
 
   subroutine binfile_read_f64(this, outPtr, var, iStart, nCount)

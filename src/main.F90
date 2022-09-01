@@ -79,7 +79,7 @@ program test
 #endif
 
      n_iter = 100
-     call test_driver(fm%m, n_iter)
+     call test_driver(fm, n_iter)
 
      call clone_barrier()
      if (myid == 0) write(*,*) 'releasing'

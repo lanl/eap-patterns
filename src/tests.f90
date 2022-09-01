@@ -13,19 +13,25 @@ contains
     now = real(c_now, REAL64) / c_rate
   end function now
     
-  subroutine test_driver(m, n_iter)
-    use mesh_types, only: mesh_t
+  subroutine test_driver(fm, n_iter)
+    use fakemesh, only: fakemesh_t
     use clone_lib_module, only: clone_myid
     implicit none
-    type(mesh_t), intent(in) :: m
+    type(fakemesh_t) :: fm
     integer, intent(in) :: n_iter
 
     myid = clone_myid()
     
     if (myid == 0 ) write(*,'(/,"-------BEGIN TESTS----------",/)')
-    call faces_sum(m, n_iter)
-    call faces_scatter(m, n_iter)
-    call topcell_sum(m, n_iter)
+    ! call faces_sum(fm%m, n_iter)
+    ! call faces_scatter(fm%m, n_iter)
+    ! call topcell_sum(fm%m, n_iter)
+
+    call faces_scatter(fm%m, n_iter)
+
+    ! The true test: derivatives
+    call deriv_test(fm, n_iter)
+    
     if (myid == 0 ) write(*,'(/,"--------END TESTS-----------",/)')
   end subroutine test_driver
 
@@ -296,5 +302,63 @@ contains
     end if
     deallocate(values)
   end subroutine faces_scatter
+
+  subroutine deriv_test(fm, n_iter)
+    use fakemesh, only: fakemesh_t
+    use gradient_types, only: kode_vel
+    use matdefcm, only: nummat
+    use gradient_types, only: gradient_prop_t
+    use interface_types, only: interface_option_t
+    use my_derivatives, only: derivatives_common_split
+#ifdef ENABLE_VTUNE  
+    use ittnotify
+#endif
+    implicit none
+    type(fakemesh_t) :: fm
+    integer, intent(in) :: n_iter
+    integer :: numitr
+    type(gradient_prop_t) :: gradp
+    type(interface_option_t) :: intopt
+    logical, allocatable :: noslope_cell(:) ! Left unallocated 
+    integer :: iMat, iIter
+    real(REAL64) :: my_dt
+    
+    my_dt = now()
+#ifdef ENABLE_VTUNE  
+    call itt_resume()
+#endif
+
+    ASSOCIATE ( &
+         m => fm%m, &
+         cells => fm%m%cells, &
+         core => fm%core, &
+         numcell => fm%m%cells%numcell &
+         )
+
+      numitr = 0
+      gradp%numrho = 0
+      gradp%numrho_fvol = 1
+
+      do iIter = 1, n_iter
+         call derivatives_common_split( &
+              m%sim, m, &
+              fm%frac_core, fm%core, &
+              gradp, intopt, &
+              cells%numcell_clone, gradp%numrho, m%sim%numvel,   &
+              kode_vel, noslope_cell,  &
+              core%deriv_velocity(1:cells%numcell_clone,1:m%sim%numdim,1:m%sim%numvel), &
+              .true., &
+              invalue = core%cell_velocity(1:cells%numcell_clone,1:m%sim%numvel)&
+              )
+      end do
+    END ASSOCIATE
+#ifdef ENABLE_VTUNE  
+    call itt_pause()
+#endif
+    my_dt = now() - my_dt
+    call printit("deriv_test", .true., my_dt)
+
+  end subroutine deriv_test
+    
 end module tests
     

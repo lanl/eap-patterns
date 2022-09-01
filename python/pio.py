@@ -125,25 +125,26 @@ class pio:
             self.xnames.append(hdf)
 
         # get the number of dimensions based on cell data
-        cch = self.names["cell_center_1"]
-        self.numcell = int(cch["length"])
+        amhc_i = self.readArray("amhc_i_0").astype(np.int64)
+        self.nummat = amhc_i[5]
+        self.ndim = amhc_i[42]
+        self.numcell = amhc_i[54] 
+        amhc_i = None
+        
         self.outOffset = -1
-        if "cell_center_3" in self.names:
-            self.ndim = 3
-        elif "cell_center_2" in self.names:
-            self.ndim = 2
-        else:
-            self.ndim = 1
 
         # initialize the CSR data
         self.csrN = 0
         self.csrLen = 0
-        self.invVol = None
+        self.csrVol = None
+        self.csrInvVol = None
         self.csrID = None
         self.csrIdx = None
 
     def updateCsrIndices(self, csr_counts, csr_ids, csr_vols, shift=1):
+
         if self.csrIdx is not None:
+            # Already inited, do nothing
             return
 
         print("updating")
@@ -157,7 +158,8 @@ class pio:
             csr_vols += "_0"
 
         # read volume and invert
-        self.invVolume = 1.0 / self.readArray(csr_vols)
+        self.csrVol = self.readArray(csr_vols)
+        self.csrInvVol = 1.0 / self.csrVol
 
         # read, convert, and shift CSR IDs
         self.csrID = self.readArray(csr_ids).astype(np.int64)
@@ -185,6 +187,7 @@ class pio:
         if not name.endswith("_0"):
             name += "_0"
         data = self.readArray(name)
+        print(f'read {name}={data}')        
 
         newArray = np.zeros((self.csrN, self.numcell))
         for iCell in range(self.numcell):
@@ -193,7 +196,7 @@ class pio:
             for idx in range(iStart, iEnd):
                 iCsr = self.csrID[idx]
                 if scale:
-                    newArray[iCsr][iCell] = data[idx] * self.invVolume[iCell]
+                    newArray[iCsr][iCell] = data[idx] * self.csrInvVol[iCell]
                 else:
                     newArray[iCsr][iCell] = data[idx]
 
@@ -517,6 +520,7 @@ if __name__ == "__main__":
             nbrs[i] = p.readArray(f"cell_index_{i+1}")
             print(nbrs[i])
 
+        print(f'numdim={p.ndim}, nummat={p.nummat}, numcell={p.numcell}')
         # Will write chunk_vol and chunk_eng for all CSR Indices
         # outName = "bigfile-dmp000000"
         # myVars = ["chunk_vol", "chunk_eng"]

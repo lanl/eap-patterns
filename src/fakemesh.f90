@@ -2,7 +2,7 @@
 
 module fakemesh
   use mesh_types, only: mesh_t
-  use mesh_state_types, only: mesh_state_frac_core_t
+  use mesh_state_types, only: mesh_state_frac_core_t, mesh_state_core_t
   use clone_lib_module, only: clone_myid, clone_reduce, CLONE_SUM, clone_abort
   use binreader
   
@@ -14,6 +14,7 @@ module fakemesh
      integer :: mpi_id
      integer :: nprocs
      type(mesh_t) :: m
+     type(mesh_state_core_t) :: core
      type(mesh_state_frac_core_t) :: frac_core
    contains
      procedure :: init_faces
@@ -28,10 +29,12 @@ contains
   
   subroutine init_frac_core(self, iStart, nCount)
     ! Initialize the frac_core values from file
-    use define_kind, only: INT64
+    use define_kind, only: INT64, REAL64
+    use matdefcm, only: nummat
     implicit none
     class(fakemesh_t) :: self
     integer(INT64) :: iStart, nCount
+    real(REAL64), dimension(:,:), pointer :: dptr
     
     ASSOCIATE(                        &
          m => self%m,                 &
@@ -43,14 +46,29 @@ contains
          frac_core => self%frac_core  &
          )
 
-         iStart = cells%cell_address(mpiid)
-         nCount = cells%cell_address(mpiid + 1) - iStart
-         !loCell =>  pio_get_range_i64(self%id, "cell_index", 2 * idim - 1, iStart, nCount)
+      write(*,*) 'reading frac_vol', nummat, m%cells%numcell_clone
+      self%frac_core%vol%nmat = nummat
+      self%frac_core%vol%ncells = m%cells%numcell_clone
+      allocate(self%frac_core%vol%obj(m%cells%numcell_clone, nummat))
+      dptr => self%frac_core%vol%obj
+      call self%bfp%read(dptr, "frac_vol", iStart, nCount, int(nummat, kind=INT64))
 
-         ! Get the material counts
-         !SS frac_core%vol%obj = pio_get_range_matvar(self%ID, "chunk_vol", 0_INT64, nCount) 
+      write(*,*) 'reading frac_eng', nummat, m%cells%numcell_clone
+      self%frac_core%eng%nmat = nummat
+      self%frac_core%eng%ncells = m%cells%numcell_clone
+      allocate(self%frac_core%eng%obj(m%cells%numcell_clone, nummat))
+      dptr => self%frac_core%eng%obj
+      call self%bfp%read(dptr, "frac_eng", iStart, nCount, int(nummat, kind=INT64))
 
-         
+      write(*,*) 'reading frac_mass', nummat, m%cells%numcell_clone
+      self%frac_core%mass%nmat = nummat
+      self%frac_core%mass%ncells = m%cells%numcell_clone
+      allocate(self%frac_core%mass%obj(m%cells%numcell_clone, nummat))
+      dptr => self%frac_core%mass%obj
+      call self%bfp%read(dptr, "frac_mass", iStart, nCount, int(nummat, kind=INT64))
+
+      write(*,*) 'init_frac done'
+
     END ASSOCIATE
       
     
@@ -302,6 +320,7 @@ contains
   subroutine init(self, myfile, mpinprocs, mpiid)
     use iso_fortran_env, only: INT64, REAL64, INT8
     use iso_c_binding
+    use matdefcm, only: nummat
     use clone_lib_module, only: mycomm, clone_abort, clone_get, clone_base_init, clone_init, clone_barrier, clone_myid
     implicit none
 
@@ -347,21 +366,26 @@ contains
     ASSOCIATE( m => self%m )
       
       call self%bfp%init(myfile)
+
       
       !*-- Read in the total number of cells and dimensions
-      nCell = self%bfp%nCells
       ndim = self%bfp%nDim
       if ( nDim > 1) then
          n_shift = 2 * nDim - 3
       else
          n_shift = 0
       end if
+
+      nCell = self%bfp%nCells
+      nummat = self%bfp%nMat
+      
       
       !*-- Allocate scalars in mesh data structure
       call allocate_mesh_scalars(m)
 
       !*-- Set ndim
       m%sim%numdim = nDim
+      m%sim%numvel = nDim
 
       !*-- Generate the MPI partitioning, and current PE's iStart and nCount
       m%cells%cell_address => &
@@ -549,7 +573,21 @@ contains
          m%cells%cell_half_hi(:, iDim) = m%cells%vcell/2.0_REAL64
       end do
       !*-- update the mesh state variables
-      !SS call self%init_frac_core(iStart, nCount)
+      call self%init_frac_core(iStart, nCount)
+
+      ! !*-- update core%rho
+      ! allocate(self%core%rho(m%cells%numcell_clone))
+      ! do iCell = 1, m%cells%numcell_clone
+      !    self%core%rho(iCell) = sum(self%frac_core%mass(iCell,:)) / m%cells%vcell(iCell)
+      ! end do
+      
+      ! Allocate and randomize velocities
+      allocate(self%core%cell_velocity(m%cells%numcell_clone, m%sim%numvel))
+      call random_number(self%core%cell_velocity)
+      
+      ! Allocate and set deriv_velocity to zero
+      allocate(self%core%deriv_velocity(m%cells%numcell_clone, m%sim%numdim, m%sim%numvel))
+      self%core%deriv_velocity = 0.0_REAL64
       
       call clone_barrier()
       if (myID == 0) then

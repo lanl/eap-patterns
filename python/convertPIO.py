@@ -23,6 +23,7 @@ bytes   kind   what
 8       int64  endian marker: 1
 8       int64  number of dimensions, 
 8       int64  number of cells
+8       int64  number of materials
 8       int64  nLen= length of space padded name strings
 8       int64  number of variables
 
@@ -71,7 +72,14 @@ def getFaceType(index, iCell, iNbr, level):
     else:
         raise ValueError("Invalid type calculation")
     return iType
-        
+
+def get(p, name, type=np.double):
+    """ reads arrays. Transposes 2D arrays. """
+    res = p.read
+
+def updateCSR(p):
+    p.updateCsrIndices("chunk_nummat", "chunk_mat", "vcell", 1)
+    
 def convertPIO(fname, outfile, verbose=False):
 
     p = pio(fname)
@@ -81,8 +89,6 @@ def convertPIO(fname, outfile, verbose=False):
     offsets = [1,0,2,0,4,0]
     nFaces = np.zeros((2 * p.ndim,6),'i')
 
-    if(verbose):
-        print(len(daughter),daughter)
     nbrs = np.zeros((p.numcell, 2 * p.ndim), np.int64)
     face_type = np.zeros((p.numcell, 2 * p.ndim), np.int8)
     numtop = 0
@@ -123,6 +129,10 @@ def convertPIO(fname, outfile, verbose=False):
     newNames['face_type'] = {'type':'i08', 'n':2 * p.ndim * p.numcell}
     newNames['cell_center'] = {'type':'f64', 'n':p.ndim * p.numcell}
     newNames['vcell'] = {'type':'f64', 'n':p.numcell}
+    newNames['mass'] = {'type':'f64', 'n':p.numcell}
+    newNames['frac_vol'] = {'type':'f64', 'n':p.nummat * p.numcell}
+    newNames['frac_mass'] = {'type':'f64', 'n':p.nummat * p.numcell}
+    newNames['frac_eng'] = {'type':'f64', 'n':p.nummat * p.numcell}
 
     # Now to write the file
     with open(outfile,'wb') as ofp:
@@ -132,6 +142,7 @@ def convertPIO(fname, outfile, verbose=False):
         ofp.write(struct.pack("q",1))
         ofp.write(struct.pack("q",p.ndim))
         ofp.write(struct.pack("q",p.numcell))
+        ofp.write(struct.pack("q",p.nummat))
         ofp.write(struct.pack("q",p.lName))
         ofp.write(struct.pack("q",len(newNames)))
 
@@ -157,8 +168,6 @@ def convertPIO(fname, outfile, verbose=False):
             if n == 'cell_center':
                 for idx in range(p.ndim):
                     name = f'{n}_{idx+1:1}'
-                    if(verbose):
-                        print('    reading:',name)
                     c = p.readArray(name)
                     c.tofile(ofp)
                     c = None
@@ -171,35 +180,66 @@ def convertPIO(fname, outfile, verbose=False):
                 cell_level.tofile(ofp)
             elif n == 'face_type':
                 face_type.tofile(ofp)
+            elif n == 'frac_vol':
+                # Update CSR indices, does nothing if already inited
+                p.updateCsrIndices("chunk_nummat", "chunk_mat", "vcell", 1)
+                if 'chunk_vol_0' in p.names:
+                    name = 'chunk_vol_0'
+                    scale = True
+                else:
+                    name = 'frac_vol_1'
+                    scale = False
+                volfrac = p.expandCsrVariable(name, scale).transpose()
+                volfrac.tofile(ofp)
+                volfrac = None
+            elif n == 'frac_mass':
+                # Update CSR indices, does nothing if already inited
+                updateCSR(p)
+                if 'chunk_mass_0' in p.names:
+                    name = 'chunk_mass_0'
+                    scale = True
+                else:
+                    name = 'frac_mass_1'
+                    scale = False
+                massfrac = p.expandCsrVariable(name, scale).transpose()
+                massfrac.tofile(ofp)
+                massfrac = None
+            elif n == 'frac_eng':
+                # Update CSR indices, does nothing if already inited
+                p.updateCsrIndices("chunk_nummat", "chunk_mat", "vcell", 1)
+                if 'chunk_eng_0' in p.names:
+                    name = 'chunk_eng_0'
+                    scale = True
+                else:
+                    name = 'frac_eng_1'
+                    scale = False
+                engfrac = p.expandCsrVariable(name, scale).transpose()
+                engfrac.tofile(ofp)
+                engfrac = None
             else:
                 # read from file
                 name = f'{n}_0'
-                if(verbose):
-                    print('    reading:',name)
                 c = p.readArray(name)
                 c.tofile(ofp)
                 c = None
-
+                
+        
         # Write variable data
-        trailer = "\nContents: eap-patterns-bin, 1(i64), ndim(i64), ncell(i64), name_len(i64), nVars(i64), " + \
-            "list of names + element_size(i64) + offsets(i64), data(doubles)\n"
+        trailer = "\nContents: eap-patterns-bin, 1(i64), ndim(i64), ncell(i64), nmat(i64), name_len(i64), nVars(i64), " + \
+            "list of names + element_size(i64) + offsets(i64), data\n"
         ofp.write(trailer.encode())
 
-        if(verbose):
-            print('done writing')
-    counts = [0]*6
-    for iCell,t in enumerate(face_type):
-        for i2,s in enumerate(t):
-            if s == 1 and i2%2 == 1:
-                print('High side 1:', iCell, t)
-            counts[s] += 1
-    print(' typecount=', sum(counts), counts)
-    print('nFacecount=', sum(sum(nFaces)), [sum(nFaces[:,iType]) for iType in range(1,6)])
-    for iDim in range(p.ndim):
-        print('idim=', iDim, nFaces[idim,:])
+    if(verbose):
+        print('done writing, performing checks')
+        counts = [0]*6
+        for iCell,t in enumerate(face_type):
+            for i2,s in enumerate(t):
+                counts[s] += 1
+        print(' typecount=', sum(counts), counts)
+        print('nFacecount=', sum(sum(nFaces)), [sum(nFaces[:,iType]) for iType in range(1,6)])
+        for iDim in range(p.ndim):
+            print('idim=', iDim, nFaces[idim,:])
 
-    icell = 53
-    # print(f'cell={icell-1} faces={face_type[:][icell-1]}')
 if __name__ == "__main__":
     import sys
 

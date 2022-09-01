@@ -20,24 +20,18 @@ module mesh_state_types
 
   public
 
-  type :: ep_ptr_d_t
-     real(c_double), pointer, dimension(:) :: p
-  end type ep_ptr_d_t
-
-  type :: ep_2d_t
-     type(c_ptr) :: base
-     type(ep_ptr_d_t), dimension(:), pointer :: data
-  end type ep_2d_t
-
-  
   type mesh_state_core_t
-     real(REAL64), dimension(:), pointer :: rho => null()
+     real(REAL64), contiguous, pointer :: rho(:) => null()
+     real(REAL64), contiguous, pointer :: cell_velocity(:,:) => null()
+     real(REAL64), contiguous, pointer :: deriv_velocity(:,:,:) => null()
   end type mesh_state_core_t
+  
   type mesh_state_frac_var_t
      integer :: nmat
      integer :: ncells
-     type(ep_2d_t) :: obj
+     real(REAL64), pointer, dimension(:,:) :: obj
   end type mesh_state_frac_var_t
+  
   type mesh_state_frac_core_t
      type(mesh_state_frac_var_t) :: mass
      type(mesh_state_frac_var_t) :: vol       !  Needed
@@ -68,7 +62,7 @@ end module fixed_values_module
 module interface_types
   public
   type interface_option_t
-     integer :: interface_option = 1
+     integer :: interface_option = 0
      integer :: vof_multimat_treatment = 1
      logical :: flatten_interface_vel = .false.
      logical, pointer :: is_vof_mat(:) => null()
@@ -79,6 +73,7 @@ module sim_types
   public
   type ::  sim_info_t
      integer :: numdim=3
+     integer :: numvel=3
   end type sim_info_t
 end module sim_types
 
@@ -99,8 +94,17 @@ end module var_wrapper_class
 
 module gradient_types
   public
+  integer, parameter :: KODE_LEN = 3
+  integer, parameter :: kode_zero(KODE_LEN) = 0
+  integer, parameter :: kode_vel(KODE_LEN,KODE_LEN)  = &
+       reshape ( &
+       [ -1, -10, -10, & 
+       -10, -1,  -10, &
+       -10, -10, -1 ], [KODE_LEN,KODE_LEN])
   type gradient_prop_t
      integer :: shock_detector
+     integer :: numrho
+     integer :: numrho_fvol
   end type gradient_prop_t
 end module gradient_types
 
