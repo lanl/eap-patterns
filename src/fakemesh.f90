@@ -409,7 +409,7 @@ contains
       end if
       do i=0,nprocs-1
          if (i == myID) then
-            write(*, '("    Reading on processor: ",i6)') i
+            ! write(*, '("    Reading on processor: ",i6)') i
             call self%bfp%read(nbrs, "cell_index", iStart, nCount, 2_INT64 * nDim)
             call self%bfp%read(face_type, "face_type", iStart, nCount, 2_INT64 * nDim)
             call self%bfp%read(m%levels%cell_daughter, "cell_daughter", iStart, nCount)
