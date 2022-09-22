@@ -88,8 +88,8 @@ if ( EP_MPI )
   target_link_libraries(mygrad ${MPI_Fortran_LIBRARIES})
   
   if(MPI_Fortran_COMPILE_FLAGS)
-    set_target_properties(mygrad PROPERTIES
-      COMPILE_FLAGS "${MPI_Fortran_COMPILE_FLAGS}")
+    set_source_files_properties(src/clone_lib.f90 PROPERTIES COMPILE_FLAGS "${CMAKE_Fortran_FLAGS} ${MPI_Fortran_COMPILE_FLAGS}")
+    set_source_files_properties(src/clone_reduce.f90 PROPERTIES COMPILE_FLAGS "${CMAKE_Fortran_FLAGS} ${MPI_Fortran_COMPILE_FLAGS}")
   endif()
 
   if(MPI_Fortran_LINK_FLAGS)

@@ -179,8 +179,10 @@ contains
           !write(*,'(I4, " ", 2(I12, " "))') iType, global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), &
           ! global_faces_on_pe_boundary(iType)
        end do
-       write(*,'("            Faces: ", 5(F12.1, " "))') (global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), iType=1,5)
-       write(*,'("       Bdry Faces: ", 5(F12.1, " "))') (global_faces_on_pe_boundary(iType), iType=1,5)
+       write(*,'("            Faces: ", 5(F12.1, " "))') &
+         (global_faces_by_types(iType)- global_faces_on_pe_boundary(iType), iType=1,5)
+       write(*,'("       Bdry Faces: ", 5(F12.1, " "))') &
+         (global_faces_on_pe_boundary(iType), iType=1,5)
     end if
     call printit("faces_sum", .true., my_dt)
   end subroutine faces_sum
