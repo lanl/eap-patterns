@@ -344,7 +344,7 @@ contains
          numcell => fm%m%cells%numcell &
          )
 
-      numitr = 0
+      numitr = 1
       gradp%numrho = 0
       gradp%numrho_fvol = 1
 
