@@ -191,9 +191,10 @@ contains
          end if
          maxFaces = max(maxFaces, sum(nFaces(:,idim)))
       end do
- 
+
       ! Allocate space to hold face data
       allocate(  &
+           faces%face_flag(5,3),               &          
            faces%face_num(ndim),               &          
            faces%face_id(nFaceTypes,ndim),     &
            faces%face_lo(nFaceTypes, ndim),    &
@@ -202,6 +203,7 @@ contains
            )
 
       ! Populate face meta data
+      faces%face_flag = 0
       faces%face_num = 0
       faces%face_local = -1
       faces%face_lo = -1

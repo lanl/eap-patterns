@@ -78,7 +78,7 @@ program test
      call fm%init(trim(fname), nprocs, myid)
 #endif
 
-     n_iter = 100
+     n_iter = 1
      call test_driver(fm, n_iter)
 
      call clone_barrier()

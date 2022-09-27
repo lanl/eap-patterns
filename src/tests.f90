@@ -313,6 +313,7 @@ contains
   end subroutine faces_scatter
 
   subroutine deriv_test(fm, n_iter)
+    use clone_lib_module, only: clone_get
     use fakemesh, only: fakemesh_t
     use gradient_types, only: kode_vel
     use matdefcm, only: nummat
@@ -331,6 +332,8 @@ contains
     logical, allocatable :: noslope_cell(:) ! Left unallocated 
     integer :: iMat, iIter
     real(REAL64) :: my_dt
+    real(REAL64), allocatable, dimension(:,:)   :: value_cloned
+    integer :: iVar
     
     my_dt = now()
 #ifdef ENABLE_VTUNE  
@@ -345,9 +348,13 @@ contains
          )
 
       numitr = 1
-      gradp%numrho = 0
+      gradp%numrho = 1
       gradp%numrho_fvol = 1
-
+      allocate(value_cloned(m%cells%numcell_clone, m%sim%numvel))
+      do iVar = 1, m%sim%numvel
+         call clone_get(value_cloned(:, iVar))
+      end do
+      
       do iIter = 1, n_iter
          call derivatives_common_split( &
               m%sim, m, &
@@ -357,9 +364,11 @@ contains
               kode_vel, noslope_cell,  &
               core%deriv_velocity(1:cells%numcell_clone,1:m%sim%numdim,1:m%sim%numvel), &
               .true., &
-              invalue = core%cell_velocity(1:cells%numcell_clone,1:m%sim%numvel)&
+              invalue = core%cell_velocity(1:cells%numcell_clone,1:m%sim%numvel),&
+              value_cloned = value_cloned &
               )
       end do
+      deallocate(value_cloned)
     END ASSOCIATE
 #ifdef ENABLE_VTUNE  
     call itt_pause()

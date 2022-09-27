@@ -630,6 +630,16 @@
         !      The variable rho must have been communicated if kode(dir,nm).eq.2
         !      and method.ne.NO_DERIV (see do lopp below)
 
+        ! A faster initialization !
+        ! deriv = ZERO
+        ! do nm = 1,numvec
+        !    do dir = 1,sim%numdim
+        !       if (method.ne.NO_DERIV .and. kode(dir,nm).eq.2) then
+        !          deriv(1:mesh%cells%numcell_clone,dir,nm) = core%rho(1:mesh%cells%numcell_clone) * grav_scr%grav_accel(1:mesh%cells%numcell_clone,dir)
+        !       endif
+        !    enddo ! dir
+        ! enddo ! nm
+
         do nm = 1,numvec
            do dir = 1,sim%numdim
               if (method.ne.NO_DERIV .and. kode(dir,nm).eq.2) then
@@ -1570,7 +1580,6 @@
       real(REAL64) :: normp !JV norm of the original gradient
       real(REAL64) :: van_leer_weight_loc !JV local van_leer_weight based on
       ! the direction of the original gradient (ranging from 1 to sqrt(3))
-
       associate ( cells => mesh%cells, &
            levs => mesh%levels)
 
@@ -1673,8 +1682,7 @@
 
       real(REAL64), intent(in),    dimension(:,:)   :: invalue
       real(REAL64), intent(in), optional, dimension(:,:)   :: value_cloned
-
-
+      
       call derivatives_common_internal_split(sim, mesh, cell_dim, numitr, nvec, kode, &
            noslope_cell, deriv, do_fincom, &
            invalue, &
@@ -1879,7 +1887,6 @@
 
         ic_limit_slope = logical(limit_slope, c_bool)
 #endif
-
         call inside_com1_split(sim, mesh, core, nvec, &
              & kode, deriv, cell_val_flcl, invalue=invalue, value_cloned=value_cloned)
 

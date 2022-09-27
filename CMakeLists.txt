@@ -9,6 +9,7 @@ option(EP_MPI "Build targets with MPI integration;" "ON")
 option(EP_SANITIZE "Add address sanitizer flag;" "OFF")
 option(EP_GZ "Enable GZ file reading in PIO;" "ON")
 option(EP_VTUNE "Enable VTUNE profiling control;" "OFF") 
+option(EP_IPO "Enable Interprocedural Optimization;" "OFF") 
 
 if ( EP_MPI )
   find_package(MPI REQUIRED)
@@ -26,6 +27,7 @@ if ("${CMAKE_Fortran_COMPILER_ID}" STREQUAL "Intel")
   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -std08 -align all -check noarg_temp_created -cpp")
   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -assume realloc_lhs -fp-model precise -fp-speculation strict")
   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -qopt-report=0 -ip  -qopenmp -fPIC -xHost")
+  set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -g -O0")
 endif ()
 
 # Specify sources
@@ -104,9 +106,10 @@ if ( EP_MPI )
 endif()
 
 
-
-include(CheckIPOSupported)
-check_ipo_supported(RESULT supported OUTPUT error)
+if ( EP_IPO )
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT supported OUTPUT error)
+endif()
 
 if( supported )
     message(STATUS "IPO / LTO enabled")
