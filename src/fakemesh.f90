@@ -35,6 +35,7 @@ contains
     class(fakemesh_t) :: self
     integer(INT64) :: iStart, nCount
     real(REAL64), dimension(:,:), pointer :: dptr
+    if (clone_myid() == 0 ) write(*,*) '   Initializing_frac_core'
     
     ASSOCIATE(                        &
          m => self%m,                 &
@@ -46,28 +47,24 @@ contains
          frac_core => self%frac_core  &
          )
 
-      write(*,*) 'reading frac_vol', nummat, m%cells%numcell_clone
       self%frac_core%vol%nmat = nummat
       self%frac_core%vol%ncells = m%cells%numcell_clone
       allocate(self%frac_core%vol%obj(m%cells%numcell_clone, nummat))
       dptr => self%frac_core%vol%obj
       call self%bfp%read(dptr, "frac_vol", iStart, nCount, int(nummat, kind=INT64))
 
-      write(*,*) 'reading frac_eng', nummat, m%cells%numcell_clone
       self%frac_core%eng%nmat = nummat
       self%frac_core%eng%ncells = m%cells%numcell_clone
       allocate(self%frac_core%eng%obj(m%cells%numcell_clone, nummat))
       dptr => self%frac_core%eng%obj
       call self%bfp%read(dptr, "frac_eng", iStart, nCount, int(nummat, kind=INT64))
 
-      write(*,*) 'reading frac_mass', nummat, m%cells%numcell_clone
       self%frac_core%mass%nmat = nummat
       self%frac_core%mass%ncells = m%cells%numcell_clone
       allocate(self%frac_core%mass%obj(m%cells%numcell_clone, nummat))
       dptr => self%frac_core%mass%obj
       call self%bfp%read(dptr, "frac_mass", iStart, nCount, int(nummat, kind=INT64))
 
-      write(*,*) 'init_frac done'
 
     END ASSOCIATE
       
@@ -428,6 +425,7 @@ contains
       !   High side faces count when on physical / PE boundaries
       !   and when on an AMR boundary with a coarse cell on the
       !   high side (type-4 face)
+      if (myID == 0 ) write(*, *) '  Counting clones'
       nClone = 0
       face_count = 0
       m%levels%numtop = 0
@@ -481,7 +479,7 @@ contains
       end if
 
       call clone_barrier()
-      if (myID == 0 ) write(*, *) '  Clones counted'
+      if (myID == 0 ) write(*, *) '  Adjusting neighbors'
       !*-- Initialize ltop
       !*-- remap neighbors and configure clone_map
       allocate(tmp_clone_map(nClone))
@@ -513,7 +511,7 @@ contains
       end do
       call clone_barrier()
       
-      if (myID == 0 ) write(*, *) '  Neighbors adjusted'
+      if (myID == 0 ) write(*, *) '  Generating clone map'
 
       ! Set clone_map to correct size and copy data
       allocate(clone_map(nClone))
@@ -591,9 +589,8 @@ contains
       
       call clone_barrier()
       if (myID == 0) then
-         write(*,*) 'done reading'
+         write(*,*) 'Done initializing mesh from file'
       end if
-      if (myid == 0 ) write(*,*) 'Done initializing mesh'
     END ASSOCIATE
   end subroutine init
 

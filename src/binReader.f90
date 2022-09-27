@@ -143,7 +143,6 @@ contains
          offset = offset + 8
          call readIt(c_loc(tmpOffset), this%fp, offset, 8_INT64)
          offset = offset + 8
-         write(*,*) 'variable:', ivar, trim(tmpname)
          this%vars(ivar)%name = tmpname
          this%vars(ivar)%size = tmpSize
          this%vars(ivar)%offset = tmpOffset
@@ -258,12 +257,10 @@ contains
     integer :: i
 
     do i =1, this%nvars
-       write(*,*) trim(var), trim(this%vars(i)%name), (var .eq. this%vars(i)%name)
        if (var == this%vars(i)%name) then
           myN = nCount
           myStart = this%vars(i)%offset + (iStart - 1) * this%vars(i)%size
           myBytes = myN * this%vars(i)%size
-          write(*,*) trim(var) // ' found, size=',myBytes, myN, this%vars(i)%size
           if (.not. associated(outPtr)) then
              allocate(outPtr(myN))
           end if
