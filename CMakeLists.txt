@@ -27,7 +27,7 @@ if ("${CMAKE_Fortran_COMPILER_ID}" STREQUAL "Intel")
   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -std08 -align all -check noarg_temp_created -cpp")
   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -assume realloc_lhs -fp-model precise -fp-speculation strict")
   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -qopt-report=0 -ip  -qopenmp -fPIC -xHost")
-  set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -g -O0")
+  set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -g")
 endif ()
 
 # Specify sources
