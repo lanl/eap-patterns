@@ -1,3 +1,20 @@
+!!  =======================================================================
+!!  © (or copyright) 2022. Triad National Security, LLC. All rights
+!!  reserved.  This program was produced under U.S. Government contract
+!!  89233218CNA000001 for Los Alamos National Laboratory (LANL), which is
+!!  operated by Triad National Security, LLC for the U.S.  Department of
+!!  Energy/National Nuclear Security Administration. All rights in the
+!!  program are reserved by Triad National Security, LLC, and the
+!!  U.S. Department of Energy/National Nuclear Security
+!!  Administration. The Government is granted for itself and others acting
+!!  on its behalf a nonexclusive, paid-up, irrevocable worldwide license
+!!  in this material to reproduce, prepare derivative works, distribute
+!!  copies to the public, perform publicly and display publicly, and to
+!!  permit others to do so.
+!!
+!!  See LICENSE file for details
+!!  =======================================================================
+
   ! Reconstituted to use simpler data structures and fed from
   ! captured data
 #if defined(__INTEL_COMPILER) || defined(_SEQUOIA) || defined(CRAY)
@@ -29,7 +46,8 @@
 #define get_value(l,nm) merge(value_cloned(l,nm),invalue(l,nm),l .gt. mesh%cells%numcell)
 
   module my_derivatives
-    use define_kind
+    use iso_fortran_env, only : REAL64
+    use define_kind, only: ZERO, HALF, ONE, TWO, HI_SIDE, LO_SIDE, mype, iope
     use sim_types, only : sim_info_t
     use mesh_types, only : mesh_t, cells_t, faces_t
     use mesh_state_types, only : mesh_state_frac_core_t, mesh_state_core_t

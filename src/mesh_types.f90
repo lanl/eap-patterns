@@ -1,3 +1,20 @@
+!!  =======================================================================
+!!  © (or copyright) 2022. Triad National Security, LLC. All rights
+!!  reserved.  This program was produced under U.S. Government contract
+!!  89233218CNA000001 for Los Alamos National Laboratory (LANL), which is
+!!  operated by Triad National Security, LLC for the U.S.  Department of
+!!  Energy/National Nuclear Security Administration. All rights in the
+!!  program are reserved by Triad National Security, LLC, and the
+!!  U.S. Department of Energy/National Nuclear Security
+!!  Administration. The Government is granted for itself and others acting
+!!  on its behalf a nonexclusive, paid-up, irrevocable worldwide license
+!!  in this material to reproduce, prepare derivative works, distribute
+!!  copies to the public, perform publicly and display publicly, and to
+!!  permit others to do so.
+!!
+!!  See LICENSE file for details
+!!  =======================================================================
+
 module timer_module
   implicit none
   public
@@ -14,7 +31,7 @@ end module timer_module
 
 module mesh_state_types
   use iso_c_binding
-  use define_kind
+  use iso_fortran_env, only : REAL64
 
   implicit none
 
@@ -52,7 +69,7 @@ module matdefcm
 end module matdefcm
 
 module fixed_values_module
-  use define_kind, only : REAL64
+  use iso_fortran_env, only : REAL64
   implicit none
   public
   real(REAL64), parameter :: minimum_fraction = 1.00021e-12_REAL64
@@ -78,7 +95,7 @@ module sim_types
 end module sim_types
 
 module var_wrapper_class
-  use define_kind
+  use iso_fortran_env, only : REAL64
   public
   type :: var_wrapper
   end type var_wrapper
@@ -113,14 +130,14 @@ module mesh_state_cell_accessors
   public
 contains
   pure subroutine CV_zero_for_cells_ary(weight,mixed_count,mixed_list)
-    use define_kind
+    use iso_fortran_env, only : REAL64
     implicit none
     real(REAL64), intent(in) :: weight(:)
     integer, intent(in) :: mixed_count
     integer, intent(inout) :: mixed_list(:)
   end subroutine CV_zero_for_cells_ary
   pure function CV_get_for_cells_ary(var,cell_count,cell_list)
-    use define_kind
+    use iso_fortran_env, only : REAL64
     implicit none
     real(REAL64), dimension(:), pointer, intent(in) :: var
     integer,intent(in) :: cell_count, cell_list(:)
@@ -132,7 +149,7 @@ end module mesh_state_cell_accessors
 
 
 module mesh_scratch_gravity
-  use define_kind
+  use iso_fortran_env, only : REAL64
   public
   ! ------------------------------------------------------------------------------
   type mesh_scratch_gravity_t
@@ -141,7 +158,6 @@ module mesh_scratch_gravity
   ! ------------------------------------------------------------------------------
 end module mesh_scratch_gravity
 module mesh_scratch_gravity_module
-  use define_kind
   use mesh_scratch_gravity
   public
   type(mesh_scratch_gravity_t) ::  grav_scr
@@ -151,7 +167,6 @@ module mesh_types
   use, intrinsic :: iso_fortran_env, only : INT64, REAL64
   use iso_c_binding
   use sim_types, only: sim_info_t
-  use define_kind
   use mesh_state_types
   public
   type levels_t
@@ -304,7 +319,7 @@ module mesh_types
 end module mesh_types
 
 module mesh_state_accessors
-  use define_kind
+  use iso_fortran_env, only : REAL64
   implicit none
   public
 contains

@@ -1,3 +1,20 @@
+!!  =======================================================================
+!!  © (or copyright) 2022. Triad National Security, LLC. All rights
+!!  reserved.  This program was produced under U.S. Government contract
+!!  89233218CNA000001 for Los Alamos National Laboratory (LANL), which is
+!!  operated by Triad National Security, LLC for the U.S.  Department of
+!!  Energy/National Nuclear Security Administration. All rights in the
+!!  program are reserved by Triad National Security, LLC, and the
+!!  U.S. Department of Energy/National Nuclear Security
+!!  Administration. The Government is granted for itself and others acting
+!!  on its behalf a nonexclusive, paid-up, irrevocable worldwide license
+!!  in this material to reproduce, prepare derivative works, distribute
+!!  copies to the public, perform publicly and display publicly, and to
+!!  permit others to do so.
+!!
+!!  See LICENSE file for details
+!!  =======================================================================
+
 module tests
   ! Tests of cell based loops
   use iso_fortran_env, only: INT64, REAL64
@@ -27,7 +44,7 @@ contains
     ! call faces_scatter(fm%m, n_iter)
     ! call topcell_sum(fm%m, n_iter)
 
-    call faces_scatter(fm%m, n_iter)
+    call faces_check(fm%m, n_iter)
 
     ! The true test: derivatives
     call deriv_test(fm, n_iter)
@@ -189,7 +206,7 @@ contains
     call printit("faces_sum", .true., my_dt)
   end subroutine faces_sum
 
-  subroutine faces_scatter(m, n_iter)
+  subroutine faces_check(m, n_iter)
     use define_kind, only: HI_SIDE, LO_SIDE
     use iso_fortran_env, only: REAL64, INT64
     use mesh_types, only: mesh_t
@@ -292,7 +309,7 @@ contains
     if (clone_myid() == 0 .and. all_expected /= all_sum) then
        write(*,*) clone_myid(), "daughters:", all_sum, all_expected, all_sum - all_expected
     end if
-    call printit("face_scatter daughters", (all_sum ==  all_expected), my_dt)
+    call printit("face_check daughters", (all_sum ==  all_expected), my_dt)
 
     ! check results for mother cells
     my_sum = 0.0
@@ -307,10 +324,10 @@ contains
        if (clone_myid() == 0) then
           write(*,*) clone_myid(), "mothers:", all_sum, all_expected, all_sum - all_expected
        end if
-       call printit("face_scatter mothers", (all_sum ==  all_expected), my_dt)
+       call printit("face_check mothers", (all_sum ==  all_expected), my_dt)
     end if
     deallocate(values)
-  end subroutine faces_scatter
+  end subroutine faces_check
 
   subroutine deriv_test(fm, n_iter)
     use clone_lib_module, only: clone_get
