@@ -54,10 +54,10 @@
     implicit none
     public
     integer, parameter :: NO_DERIV = 0
-    integer, parameter :: MINMOD = 1
-    integer, parameter :: EXTENDED_MINMOD = 2
-    integer, parameter :: VANLEER = 3
-    integer, parameter :: NO_LIMITER = 4
+    integer, parameter :: INT_MM = 1
+    integer, parameter :: INT_EMM = 2
+    integer, parameter :: INT_LV = 3
+    integer, parameter :: INT_NL = 4
 
     integer :: itrmax = 1
     integer :: method = 0
@@ -368,7 +368,7 @@
     end subroutine inside_com3b
     ! ------------------------------------------------------------------------------
     subroutine inside_com3e(sim, mesh, itr, nm, limit_slope, cell_deriv_hilo, &
-         & deriv_minmod )
+         & deriv_mm )
 
       ! non-optional scalars and derived types
       class(sim_info_t), intent(in) :: sim
@@ -378,7 +378,7 @@
 
       ! non-optional arrays
       real(REAL64), intent(inout), dimension(:,:) :: cell_deriv_hilo !(mesh%cells%numcell_clone,2)
-      real(REAL64), intent(inout) :: deriv_minmod(:,:)
+      real(REAL64), intent(inout) :: deriv_mm(:,:)
 
       ! ----- local variables
       integer      :: nt, l
@@ -388,11 +388,11 @@
 
         TIMERSET(.true., inside_com3e)
 
-        ! .....       save pure minmod on first pass
+        ! .....       
         if (limit_slope .and. itr.eq.1) then
            do nt = 1,mesh%levels%allnumtop
               l   = mesh%levels%alltop(nt)
-              deriv_minmod(l,nm) = &
+              deriv_mm(l,nm) = &
                    &   max(ZERO, min(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2))) &
                    & + min(ZERO, max(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2)))
            enddo ! nt
@@ -405,13 +405,13 @@
     end subroutine inside_com3e
     ! ------------------------------------------------------------------------------
     subroutine inside_com3f(sim, mesh, dir, nm, numitr, method, &
-         & van_leer_weight, deriv, cell_deriv_hilo, cell_deriv_hilo_all_dir )
+         & lv_weight, deriv, cell_deriv_hilo, cell_deriv_hilo_all_dir )
 
       ! non-optional scalars and derived types
       class(sim_info_t), intent(in) :: sim
       type(mesh_t), intent(in) :: mesh
       integer, intent(in) :: dir, nm, numitr, method
-      real(REAL64), intent(in)     :: van_leer_weight
+      real(REAL64), intent(in)     :: lv_weight
 
       ! non-optional arrays
       real(REAL64), intent(out)    :: deriv(:,:,:)
@@ -428,14 +428,14 @@
 
         ! .....       calculate the cell derivative
         select case (method)
-        case (MINMOD)  ! --- minmod
+        case (INT_MM)  
            do nt = 1,mesh%levels%allnumtop
               l   = mesh%levels%alltop(nt)
               deriv(l,dir,nm) = max(ZERO,min(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2))) &
                    & +min(ZERO,max(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2)))
            enddo ! nt
 
-        case (EXTENDED_MINMOD)  ! --- extended minmod limiter, Huynh, SIAM JNA 32(1995)1565
+        case (INT_EMM)  
 
            do nt = 1,mesh%levels%allnumtop
               l   = mesh%levels%alltop(nt)
@@ -444,32 +444,32 @@
                    & -(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))
            enddo ! nt
 
-        case (VANLEER) ! --- vanLeer
+        case (INT_LV) 
 
            if( numitr.eq.7 .or. numitr.eq.8 ) then !JV store left and right derivatives
               do nt = 1,mesh%levels%allnumtop
                  l   = mesh%levels%alltop(nt)
                  cell_deriv_hilo_all_dir(dir,l,1:2,nm) = cell_deriv_hilo(l,1:2)
-                 deriv(l,dir,nm) = (max(ZERO, min(van_leer_weight*cell_deriv_hilo(l,1), &
-                      & van_leer_weight*cell_deriv_hilo(l,2), &
+                 deriv(l,dir,nm) = (max(ZERO, min(lv_weight*cell_deriv_hilo(l,1), &
+                      & lv_weight*cell_deriv_hilo(l,2), &
                       & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))) &
-                      & +min(ZERO, max(van_leer_weight*cell_deriv_hilo(l,1), &
-                      & van_leer_weight*cell_deriv_hilo(l,2), &
+                      & +min(ZERO, max(lv_weight*cell_deriv_hilo(l,1), &
+                      & lv_weight*cell_deriv_hilo(l,2), &
                       & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))))
               enddo ! nt
-           else !JV original slope limiters (numrho = 1..6)
+           else 
               do nt = 1,mesh%levels%allnumtop
                  l   = mesh%levels%alltop(nt)
-                 deriv(l,dir,nm) = (max(ZERO, min(van_leer_weight*cell_deriv_hilo(l,1), &
-                      & van_leer_weight*cell_deriv_hilo(l,2), &
+                 deriv(l,dir,nm) = (max(ZERO, min(lv_weight*cell_deriv_hilo(l,1), &
+                      & lv_weight*cell_deriv_hilo(l,2), &
                       & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))) &
-                      & +min(ZERO, max(van_leer_weight*cell_deriv_hilo(l,1), &
-                      & van_leer_weight*cell_deriv_hilo(l,2), &
+                      & +min(ZERO, max(lv_weight*cell_deriv_hilo(l,1), &
+                      & lv_weight*cell_deriv_hilo(l,2), &
                       & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))))
               enddo ! nt
            endif
 
-        case (NO_LIMITER) ! --- turn off limiters
+        case (INT_NL) ! --- turn off limiters
 
            do nt = 1,mesh%levels%allnumtop
               l   = mesh%levels%alltop(nt)
@@ -485,7 +485,7 @@
     end subroutine inside_com3f
     ! ------------------------------------------------------------------------------
     subroutine inside_com3g(mesh, dir, numvec, itr, itrmax, limit_slope, &
-         & deriv, deriv_minmod, gradp, deriv_weight )
+         & deriv, deriv_mm, gradp, deriv_weight )
 
       use gradient_types,        only : gradient_prop_t
       use interface_types,       only : interface_option_t
@@ -497,7 +497,7 @@
 
       ! non-optional arrays
       real(REAL64), intent(out)    :: deriv(:,:,:)
-      real(REAL64), intent(inout) :: deriv_minmod(:,:)
+      real(REAL64), intent(inout) :: deriv_mm(:,:)
 
 
       ! optional scalars and derived types
@@ -515,15 +515,15 @@
 
         TIMERSET(.true., inside_com3g)
 
-        ! ..... limit the slope to minmod at shock fronts
+        ! ..... limit the slope
         if (itr .eq. itrmax) then
            if (present(gradp)) then
               if (limit_slope .and. present(deriv_weight) .and. gradp%shock_detector.ge.1) then
                  do nm   = 1,numvec
                     do nt = 1,mesh%levels%allnumtop
                        l   = mesh%levels%alltop(nt)
-                       deriv(l,dir,nm) = deriv_minmod(l,nm) +          &
-                            & deriv_weight(l)*(deriv(l,dir,nm)-deriv_minmod(l,nm))
+                       deriv(l,dir,nm) = deriv_mm(l,nm) +          &
+                            & deriv_weight(l)*(deriv(l,dir,nm)-deriv_mm(l,nm))
                     enddo ! nt
                  enddo ! nm
               endif
@@ -803,7 +803,7 @@
 
     end subroutine inside_com1_split
     ! ------------------------------------------------------------------------------
-    subroutine inside_com2_split(mesh, itr, dir, numvec, deriv, deriv_minmod, &
+    subroutine inside_com2_split(mesh, itr, dir, numvec, deriv, deriv_mm, &
          & cell_value_hilo, invalue, value_cloned)
 
       use mesh_types, only : mesh_t
@@ -814,7 +814,7 @@
       integer,      intent(in)  :: numvec
 
       real(REAL64), intent(in)    :: deriv(:,:,:)
-      real(REAL64), intent(inout) :: deriv_minmod(:,:)
+      real(REAL64), intent(inout) :: deriv_mm(:,:)
       real(REAL64), intent(inout) :: cell_value_hilo(:,:,:)
       real(REAL64), intent(in), dimension(:,:)           :: invalue
       real(REAL64), intent(in), optional, dimension(:,:) :: value_cloned
@@ -832,7 +832,7 @@
            do nm   = 1,numvec
               do nt = 1,mesh%levels%allnumtop
                  l   = mesh%levels%alltop(nt)
-                 deriv_minmod(l,nm) = deriv(l,dir,nm)
+                 deriv_mm(l,nm) = deriv(l,dir,nm)
               enddo ! nt
            enddo ! nm
         endif ! itr
@@ -863,7 +863,7 @@
     end subroutine inside_com2_split
     ! ------------------------------------------------------------------------------
     subroutine inside_com3_split(sim, mesh, itr, dir, numitr, numvec, &
-         & van_leer_weight, kode, deriv, deriv_minmod, cell_value_hilo, invalue, &
+         & lv_weight, kode, deriv, deriv_mm, cell_value_hilo, invalue, &
          & cell_deriv_hilo_all_dir, do_special, do_pressure, frac_core, core, &
          & gradp, intopt, deriv_weight, value_cloned, faceval )
 
@@ -877,12 +877,12 @@
       class(sim_info_t), intent(in) :: sim
       type(mesh_t), intent(in) :: mesh
       integer,      intent(in)     :: itr, dir, numitr, numvec
-      real(REAL64), intent(in)     :: van_leer_weight
+      real(REAL64), intent(in)     :: lv_weight
 
       ! non-optional arrays
       integer,      intent(in)     :: kode(:,:)
       real(REAL64), intent(out)    :: deriv(:,:,:)
-      real(REAL64), intent(inout) :: deriv_minmod(:,:)
+      real(REAL64), intent(inout) :: deriv_mm(:,:)
       real(REAL64), intent(inout) :: cell_value_hilo(:,:,:)
       real(REAL64), intent(in), dimension(:,:) :: invalue
       real(REAL64), intent(inout) :: cell_deriv_hilo_all_dir(:,:,:,:) !JV
@@ -1209,11 +1209,11 @@
               end select
 
               ! E
-              ! .....       save pure minmod on first pass
+              ! .....       
               if (limit_slope .and. itr.eq.1) then
                  do nt = 1,mesh%levels%allnumtop
                     l   = mesh%levels%alltop(nt)
-                    deriv_minmod(l,nm) = max(ZERO,min(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2))) &
+                    deriv_mm(l,nm) = max(ZERO,min(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2))) &
                          & +min(ZERO,max(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2)))
                  enddo ! nt
               endif
@@ -1221,14 +1221,14 @@
               ! .....       calculate the cell derivative
               ! F
               select case (method)
-              case (MINMOD)  ! --- minmod
+              case (INT_MM)  
                  do nt = 1,mesh%levels%allnumtop
                     l   = mesh%levels%alltop(nt)
                     deriv(l,dir,nm) = max(ZERO,min(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2))) &
                          & +min(ZERO,max(cell_deriv_hilo(l,1),cell_deriv_hilo(l,2)))
                  enddo ! nt
 
-              case (EXTENDED_MINMOD)  ! --- extended minmod limiter, Huynh, SIAM JNA 32(1995)1565
+              case (INT_EMM)  
 
                  do nt = 1,mesh%levels%allnumtop
                     l   = mesh%levels%alltop(nt)
@@ -1237,32 +1237,32 @@
                          & -(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))
                  enddo ! nt
 
-              case (VANLEER) ! --- vanLeer
+              case (INT_LV)
 
                  if( numitr.eq.7 .or. numitr.eq.8 ) then !JV store left and right derivatives
                     do nt = 1,mesh%levels%allnumtop
                        l   = mesh%levels%alltop(nt)
                        cell_deriv_hilo_all_dir(dir,l,1:2,nm) = cell_deriv_hilo(l,1:2)
-                       deriv(l,dir,nm) = (max(ZERO, min(van_leer_weight*cell_deriv_hilo(l,1), &
-                            & van_leer_weight*cell_deriv_hilo(l,2), &
+                       deriv(l,dir,nm) = (max(ZERO, min(lv_weight*cell_deriv_hilo(l,1), &
+                            & lv_weight*cell_deriv_hilo(l,2), &
                             & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))) &
-                            & +min(ZERO, max(van_leer_weight*cell_deriv_hilo(l,1), &
-                            & van_leer_weight*cell_deriv_hilo(l,2), &
+                            & +min(ZERO, max(lv_weight*cell_deriv_hilo(l,1), &
+                            & lv_weight*cell_deriv_hilo(l,2), &
                             & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))))
                     enddo ! nt
-                 else !JV original slope limiters (numrho = 1..6)
+                 else 
                     do nt = 1,mesh%levels%allnumtop
                        l   = mesh%levels%alltop(nt)
-                       deriv(l,dir,nm) = (max(ZERO, min(van_leer_weight*cell_deriv_hilo(l,1), &
-                            & van_leer_weight*cell_deriv_hilo(l,2), &
+                       deriv(l,dir,nm) = (max(ZERO, min(lv_weight*cell_deriv_hilo(l,1), &
+                            & lv_weight*cell_deriv_hilo(l,2), &
                             & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))) &
-                            & +min(ZERO, max(van_leer_weight*cell_deriv_hilo(l,1), &
-                            & van_leer_weight*cell_deriv_hilo(l,2), &
+                            & +min(ZERO, max(lv_weight*cell_deriv_hilo(l,1), &
+                            & lv_weight*cell_deriv_hilo(l,2), &
                             & HALF*(cell_deriv_hilo(l,1)+cell_deriv_hilo(l,2)))))
                     enddo ! nt
                  endif
 
-              case (NO_LIMITER) ! --- turn off limiters
+              case (INT_NL) ! --- turn off limiters
 
                  do nt = 1,mesh%levels%allnumtop
                     l   = mesh%levels%alltop(nt)
@@ -1275,15 +1275,15 @@
         enddo ! nm
 
         ! G
-        ! ..... limit the slope to minmod at shock fronts
+        ! 
         if (itr .eq. itrmax) then
            if (present(gradp)) then
               if (limit_slope .and. present(deriv_weight) .and. gradp%shock_detector.ge.1) then
                  do nm   = 1,numvec
                     do nt = 1,mesh%levels%allnumtop
                        l   = mesh%levels%alltop(nt)
-                       deriv(l,dir,nm) = deriv_minmod(l,nm) +          &
-                            & deriv_weight(l)*(deriv(l,dir,nm)-deriv_minmod(l,nm))
+                       deriv(l,dir,nm) = deriv_mm(l,nm) +          &
+                            & deriv_weight(l)*(deriv(l,dir,nm)-deriv_mm(l,nm))
                     enddo ! nt
                  enddo ! nm
               endif
@@ -1571,7 +1571,7 @@
 
     end subroutine inside_com3D_split
     ! ------------------------------------------------------------------------------
-    subroutine inside_com4_split(sim, mesh, numvec, numitr, van_leer_weight, deriv, &
+    subroutine inside_com4_split(sim, mesh, numvec, numitr, lv_weight, deriv, &
          & cell_val_flcl, cell_deriv_hilo_all_dir, invalue, value_cloned )
 
       use sim_types, only : sim_info_t
@@ -1582,7 +1582,7 @@
       type(mesh_t), intent(in)      :: mesh
       integer,      intent(in)      :: numvec
       integer,      intent(in)      :: numitr                           !JV
-      real(REAL64), intent(inout)   :: van_leer_weight
+      real(REAL64), intent(inout)   :: lv_weight
 
       real(REAL64), intent(inout) :: deriv(:,:,:)
       real(REAL64), intent(in), dimension(:,:,:) :: cell_val_flcl
@@ -1596,15 +1596,15 @@
       real(REAL64) :: delta, scale
       integer      :: nt, l, dir, nm
       real(REAL64) :: normp !JV norm of the original gradient
-      real(REAL64) :: van_leer_weight_loc !JV local van_leer_weight based on
+      real(REAL64) :: lv_weight_loc !JV local lv_weight based on
       ! the direction of the original gradient (ranging from 1 to sqrt(3))
       associate ( cells => mesh%cells, &
            levs => mesh%levels)
 
         TIMERSET(.true., inside_com4)
 
-        if (method.ne.NO_LIMITER) then
-           if (numitr .eq. 7 .or. numitr .eq. 8) then !JV multi-dimensional limiter
+        if (method.ne.INT_NL) then
+           if (numitr .eq. 7 .or. numitr .eq. 8) then 
               do nm   = 1,numvec
                  do nt = 1,levs%allnumtop
                     l   = levs%alltop(nt)
@@ -1614,23 +1614,23 @@
                     enddo
                     normp = sqrt(normp)
                     if ( normp > 1.0d-13 ) then !JV
-                       van_leer_weight_loc = 0.0d0
+                       lv_weight_loc = 0.0d0
                        do dir  = 1,sim%numdim
-                          van_leer_weight_loc = van_leer_weight_loc + ( abs( deriv(l,dir,nm) ) / normp )**3
+                          lv_weight_loc = lv_weight_loc + ( abs( deriv(l,dir,nm) ) / normp )**3
                        enddo
-                       van_leer_weight_loc = van_leer_weight_loc * van_leer_weight
+                       lv_weight_loc = lv_weight_loc * lv_weight
                     else
-                       van_leer_weight_loc = van_leer_weight
+                       lv_weight_loc = lv_weight
                     endif
-                    if(numitr .eq. 8) van_leer_weight_loc = van_leer_weight !JV temporary test selection
+                    if(numitr .eq. 8) lv_weight_loc = lv_weight !JV temporary test selection
                     do dir  = 1,sim%numdim
                        !JV to make sure that we do not increase the slopes
                        deriv(l,dir,nm) = sign( min( abs( deriv(l,dir,nm) ) , &
-                            & abs(max(ZERO, min(van_leer_weight_loc*cell_deriv_hilo_all_dir(dir,l,1,nm), &
-                            & van_leer_weight_loc*cell_deriv_hilo_all_dir(dir,l,2,nm), &
+                            & abs(max(ZERO, min(lv_weight_loc*cell_deriv_hilo_all_dir(dir,l,1,nm), &
+                            & lv_weight_loc*cell_deriv_hilo_all_dir(dir,l,2,nm), &
                             & HALF*(cell_deriv_hilo_all_dir(dir,l,1,nm)+cell_deriv_hilo_all_dir(dir,l,2,nm)))) &
-                            & +min(ZERO, max(van_leer_weight_loc*cell_deriv_hilo_all_dir(dir,l,1,nm), &
-                            & van_leer_weight_loc*cell_deriv_hilo_all_dir(dir,l,2,nm), &
+                            & +min(ZERO, max(lv_weight_loc*cell_deriv_hilo_all_dir(dir,l,1,nm), &
+                            & lv_weight_loc*cell_deriv_hilo_all_dir(dir,l,2,nm), &
                             & HALF*(cell_deriv_hilo_all_dir(dir,l,1,nm)+cell_deriv_hilo_all_dir(dir,l,2,nm))))) ) , &
                             & deriv(l,dir,nm) )
                     enddo !dir
@@ -1812,12 +1812,12 @@
       integer      :: dir, itr, ivec, nm
       integer      :: lvofd
       integer      :: priv_suntop, suntop
-      real(REAL64) :: van_leer_weight = ZERO
+      real(REAL64) :: lv_weight = ZERO
       type(var_wrapper) :: vw(1)
 
       real(REAL64) :: cell_val_flcl(mesh%cells%numcell_clone,2,nvec)
       real(REAL64) :: cell_value_hilo(mesh%cells%numcell_clone,2,nvec)
-      real(REAL64) :: deriv_minmod(mesh%cells%numcell_clone,nvec)
+      real(REAL64) :: deriv_mm(mesh%cells%numcell_clone,nvec)
       real(REAL64) :: cell_val_mnmx_hilo(mesh%cells%numcell_clone,4)
       real(REAL64) :: cell_deriv_hilo(mesh%cells%numcell_clone,2)
 
@@ -1856,7 +1856,7 @@
         !JV allocate an array for left and right extimates of derivatives
         if( numitr.eq.7 .or. numitr.eq.8 ) allocate( cell_deriv_hilo_all_dir(sim%numdim,mesh%cells%numcell_clone,2,nvec) )
 
-        call deriv_details(numitr, van_leer_weight, cell_dim, do_pressure,  &
+        call deriv_details(numitr, lv_weight, cell_dim, do_pressure,  &
              do_special=do_special)
 
 #ifdef EAP_KOKKOS_GRADIENTS
@@ -1939,7 +1939,7 @@
                       & mesh%cells%numcell, mype_is_iope, &
                       & to_nd_array(mesh%levels%alltop), &
                       & to_nd_array(deriv), &
-                      & to_nd_array(deriv_minmod), &
+                      & to_nd_array(deriv_mm), &
                       & to_nd_array(cell_value_hilo), &
                       & to_nd_array(invalue), &
                       & to_nd_array(value_cloned), &
@@ -1948,7 +1948,7 @@
 #else
                  ! else ifdef EAP_KOKKOS_GRADIENTS
                  ! no EAP_KOKKOS_GRADIENTS - so we're running F only code
-                 call inside_com2_split(mesh, itr, dir, nvec, deriv, deriv_minmod, &
+                 call inside_com2_split(mesh, itr, dir, nvec, deriv, deriv_mm, &
                       & cell_value_hilo, invalue=invalue, value_cloned=value_cloned)
 #endif
                  !endif EAP_KOKKOS_GRADIENTS
@@ -1991,9 +1991,9 @@
                             & to_nd_array(invalue), to_nd_array(value_cloned) )
                        call inside_com3e_arrays( mype_is_iope, ic_limit_slope, itr, nm, &
                             & levs%allnumtop, to_nd_array(levs%alltop), &
-                            & to_nd_array(cell_deriv_hilo), to_nd_array(deriv_minmod) )
+                            & to_nd_array(cell_deriv_hilo), to_nd_array(deriv_mm) )
                        call inside_com3f_arrays( mype_is_iope, dir, nm, numitr, &
-                            & method, levs%allnumtop, van_leer_weight, &
+                            & method, levs%allnumtop, lv_weight, &
                             & to_nd_array(levs%alltop), to_nd_array(deriv), &
                             & to_nd_array(cell_deriv_hilo), to_nd_array(cell_deriv_hilo_all_dir) )
                     end if
@@ -2002,7 +2002,7 @@
                       & ic_present_gradp, ic_present_deriv_weight, dir, nvec, &
                       & itr, itrmax, levs%allnumtop, ic_gradp, &
                       & to_nd_array(levs%alltop), to_nd_array(deriv), &
-                      & to_nd_array(deriv_minmod), ic_deriv_weight_wrapper )
+                      & to_nd_array(deriv_mm), ic_deriv_weight_wrapper )
                  call inside_com3h(sim, mesh, dir, numitr, nvec, &
                       & kode, deriv, frac_core=frac_core, intopt=intopt )
 #else
@@ -2023,14 +2023,14 @@
                        call inside_com3D_split(sim, mesh, dir, nm, kode, cell_deriv_hilo, &
                             & invalue, value_cloned=value_cloned )
                        call inside_com3e(sim, mesh, itr, nm, limit_slope, &
-                            & cell_deriv_hilo, deriv_minmod )
+                            & cell_deriv_hilo, deriv_mm )
                        call inside_com3f(sim, mesh, dir, nm, numitr, method, &
-                            & van_leer_weight, deriv, cell_deriv_hilo, &
+                            & lv_weight, deriv, cell_deriv_hilo, &
                             & cell_deriv_hilo_all_dir )
                     end if
                  end do
                  call inside_com3g(mesh, dir, nvec, itr, itrmax, limit_slope, &
-                      & deriv, deriv_minmod, gradp=gradp, deriv_weight=deriv_weight )
+                      & deriv, deriv_mm, gradp=gradp, deriv_weight=deriv_weight )
                  call inside_com3h(sim, mesh, dir, numitr, nvec, &
                       & kode, deriv, frac_core=frac_core, intopt=intopt )
 #endif
@@ -2045,7 +2045,7 @@
               enddo ! itr
            enddo ! dir
 
-           call inside_com4_split(sim, mesh, nvec, numitr, van_leer_weight, deriv, &
+           call inside_com4_split(sim, mesh, nvec, numitr, lv_weight, deriv, &
                 & cell_val_flcl, cell_deriv_hilo_all_dir, invalue, &
                 & value_cloned=value_cloned )
 
@@ -2078,7 +2078,7 @@
 
     contains
       ! ------------------------------------------------------------------------------
-      subroutine deriv_details(numitr, van_leer_weight, cell_dim, &
+      subroutine deriv_details(numitr, lv_weight, cell_dim, &
            & do_pressure, do_special)
 
         use util       , only : global_error
@@ -2086,19 +2086,19 @@
         integer,      intent(in)     :: cell_dim
         integer,      intent(in)     :: numitr
         logical,      intent(out)    :: do_pressure
-        real(REAL64), intent(inout)  :: van_leer_weight
+        real(REAL64), intent(inout)  :: lv_weight
 
         logical,      intent(in), optional :: do_special
 
         logical     :: dimerror = .false.
 
         !       numitr = 0 : no derivatives (1st order accurate)
-        !              = 1 : minmod
-        !              = 2 : iterated minmod
-        !              = 3 : extended minmod
-        !              = 4 : van Leer
-        !              = 5 : no limiter (2nd order accurate with ringing)
-        !              = 6 : modified van Leer
+        !              = 1 : MM
+        !              = 2 : iterated MM
+        !              = 3 : extended MM
+        !              = 4 : LV
+        !              = 5 : NL
+        !              = 6 : modified LV
 
         do_pressure = .false.
         if (present(do_special)) then
@@ -2119,36 +2119,36 @@
            itrmax = 0
            limit_slope = .false.
         case (1)
-           method = MINMOD
+           method = INT_MM
            itrmax = 1
            limit_slope = .false.
         case (2)
-           method = MINMOD
+           method = INT_MM
            itrmax = 2
            limit_slope = .true.
         case (3)
-           method = EXTENDED_MINMOD
+           method = INT_EMM
            itrmax = 1
            limit_slope = .true.
         case (4)
-           method = VANLEER
+           method = INT_LV
            itrmax = 1
            limit_slope = .true.
-           van_leer_weight = TWO
+           lv_weight = TWO
         case (5)
-           method = NO_LIMITER
+           method = INT_NL
            itrmax = 1
            limit_slope = .false.
-        case (6,8)                !JV test new slope limiters
-           method = VANLEER
+        case (6,8)                
+           method = INT_LV
            itrmax = 1
            limit_slope = .true.
-           van_leer_weight = 1.5_REAL64
-        case (7)                  !JV test new slope limiters
-           method = VANLEER
+           lv_weight = 1.5_REAL64
+        case (7)                  
+           method = INT_LV
            itrmax = 1
            limit_slope = .true.
-           van_leer_weight = sqrt(3.0_REAL64)  !JV this value is reduced in inside_com4
+           lv_weight = sqrt(3.0_REAL64)  !JV this value is reduced in inside_com4
         case default
            dimerror = .true.
         end select
